@@ -4,6 +4,7 @@ import { type CopyResult, copyItems, type LogEntry } from "../lib/copy";
 import { type Connection, errorMessage } from "../lib/kontent";
 import type { Plan } from "../lib/plan";
 import type { Selection } from "./SelectStep";
+import { Message } from "./ui";
 
 type Props = {
   readonly source: Connection;
@@ -59,25 +60,28 @@ export const CopyStep = ({ source, target, selection, plan, onStartOver }: Props
       <h2>
         {running ? (cancelling ? "Cancelling…" : "Copying…") : error ? "Copy failed" : cancelled ? "Copy cancelled" : "Copy finished"}
       </h2>
-      {running && !cancelling && <p className="message warning">Keep this tab open until the copy finishes.</p>}
-      {running && cancelling && (
-        <p className="message warning">
-          Stopping after the item that is being copied now, so no item is left half-copied. Keep this tab open.
+      {running && (
+        <p className="loading-general" role="status">
+          {cancelling ? "Stopping after the current item" : "Copying"}
         </p>
+      )}
+      {running && !cancelling && <Message kind="warning">Keep this tab open until the copy finishes.</Message>}
+      {running && cancelling && (
+        <Message kind="warning">
+          Stopping after the item that is being copied now, so no item is left half-copied. Keep this tab open.
+        </Message>
       )}
 
-      {cancelled && !summary && (
-        <p className="message ok">The copy stopped before anything was written to the target.</p>
-      )}
+      {cancelled && !summary && <Message kind="ok">The copy stopped before anything was written to the target.</Message>}
       {cancelled && summary && (
-        <p className="message warning">
+        <Message kind="warning">
           The copy stopped partway. {summary.variantsCancelled} language variant(s) were not copied. You can copy the
           same items again later: items that were already copied are updated, not duplicated.
-        </p>
+        </Message>
       )}
 
       {summary && (
-        <div className={`message ${summary.errors.length || summary.itemsNotRead.length ? "warning" : "ok"}`}>
+        <Message kind={summary.errors.length || summary.itemsNotRead.length ? "warning" : "ok"}>
           <p>
             Items: {summary.itemsOk} copied{summary.itemsFailed ? `, ${summary.itemsFailed} failed` : ""}. Language
             variants: {summary.variantsOk} copied
@@ -98,27 +102,34 @@ export const CopyStep = ({ source, target, selection, plan, onStartOver }: Props
               ))}
             </ul>
           )}
-        </div>
+        </Message>
       )}
-      {error && <p className="message error multiline">{error}</p>}
+      {error && (
+        <Message kind="error" multiline>
+          {error}
+        </Message>
+      )}
 
-      <ol className="log" aria-live="polite">
-        {log.map((entry, index) => (
-          <li key={index} className={entry.type === "error" ? "log-error" : entry.type === "warning" ? "log-warning" : ""}>
-            <span className="muted">{entry.time.toLocaleTimeString()}</span> {entry.type && <code>{entry.type}</code>}{" "}
-            {entry.message}
-          </li>
-        ))}
-        <li ref={logEnd} />
-      </ol>
+      <section className="log-panel" aria-label="Progress log">
+        <p className="section-heading">Progress log</p>
+        <ol className="log" aria-live="polite">
+          {log.map((entry, index) => (
+            <li key={index} className={entry.type === "error" ? "log-error" : entry.type === "warning" ? "log-warning" : ""}>
+              <span className="muted">{entry.time.toLocaleTimeString()}</span> {entry.type && <code>{entry.type}</code>}{" "}
+              {entry.message}
+            </li>
+          ))}
+          <li ref={logEnd} />
+        </ol>
+      </section>
 
       <div className="actions">
         {running && (
-          <button type="button" disabled={cancelling} onClick={cancel}>
+          <button type="button" className="btn back-btn" disabled={cancelling} onClick={cancel}>
             {cancelling ? "Cancelling…" : "Cancel copy"}
           </button>
         )}
-        <button type="button" className="primary" disabled={running} onClick={onStartOver}>
+        <button type="button" className="btn continue-btn" disabled={running} onClick={onStartOver}>
           Copy more items
         </button>
       </div>

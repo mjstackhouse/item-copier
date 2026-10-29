@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 
 import { type Connection, errorMessage, type Item, type SearchResult, searchItems, type SourceData } from "../lib/kontent";
+import { Message } from "./ui";
 
 export type Selection = {
   readonly languageCodename: string;
@@ -138,12 +139,13 @@ export const SelectStep = ({
           value={phrase}
           onChange={(e) => setPhrase(e.target.value)}
         />
-        <button type="submit" disabled={!!status.loading}>
-          {status.loading === "search" ? "Searching…" : "Search"}
+        <button type="submit" className="btn continue-btn" disabled={!!status.loading}>
+          {status.loading === "search" && <span className="loading-span" aria-hidden="true" />}
+          {status.loading === "search" ? "Searching" : "Search"}
         </button>
       </form>
       <p className="hint">Leave the search empty to list all items in this language.</p>
-      {status.error && <p className="message error">{status.error}</p>}
+      {status.error && <Message kind="error">{status.error}</Message>}
 
       {results && (
         <ul className="item-list" aria-label="Search results">
@@ -158,8 +160,13 @@ export const SelectStep = ({
           ))}
           {results.items.length === 0 && <li className="muted">No items match.</li>}
           {results.continuationToken && (
-            <li>
-              <button type="button" disabled={!!status.loading} onClick={() => void runSearch(results.continuationToken)}>
+            <li className="load-more">
+              <button
+                type="button"
+                className="btn back-btn"
+                disabled={!!status.loading}
+                onClick={() => void runSearch(results.continuationToken)}
+              >
                 {status.loading === "more" ? "Loading…" : "Load more"}
               </button>
             </li>
@@ -169,7 +176,7 @@ export const SelectStep = ({
 
       {selection.pickedItems.length > 0 && (
         <>
-          <h3>Selected items</h3>
+          <h3 className="list-heading">Selected items</h3>
           <ul className="item-list" aria-label="Selected items">
             {selection.pickedItems.map((item) => (
               <li key={item.id} className="selected-item">
@@ -177,8 +184,14 @@ export const SelectStep = ({
                   <span className="item-name">{item.name}</span>{" "}
                   <span className="muted">{typeName(item.typeId)}</span>
                 </span>
-                <button type="button" onClick={() => toggle(item)} aria-label={`Remove ${item.name}`}>
-                  Remove
+                <button
+                  type="button"
+                  className="delete-btn"
+                  onClick={() => toggle(item)}
+                  aria-label={`Remove ${item.name}`}
+                  title="Remove"
+                >
+                  ×
                 </button>
               </li>
             ))}
@@ -187,11 +200,16 @@ export const SelectStep = ({
       )}
 
       <div className="actions">
-        <button type="button" onClick={onBack}>
+        <button type="button" className="btn back-btn" onClick={onBack}>
           Back
         </button>
         <span className="muted">{selection.pickedItems.length} selected</span>
-        <button type="button" className="primary" disabled={selection.pickedItems.length === 0} onClick={onNext}>
+        <button
+          type="button"
+          className="btn continue-btn"
+          disabled={selection.pickedItems.length === 0}
+          onClick={onNext}
+        >
           Next: preview
         </button>
       </div>

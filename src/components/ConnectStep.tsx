@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import { type Connection, connect, errorMessage } from "../lib/kontent";
+import { Message, Tooltip } from "./ui";
 
 type Props = {
   readonly source?: Connection;
@@ -23,9 +24,14 @@ export const ConnectStep = ({ source, target, onSourceChange, onTargetChange, on
         <EnvironmentForm label="Copy from (source)" connection={source} onChange={onSourceChange} />
         <EnvironmentForm label="Copy to (target)" connection={target} onChange={onTargetChange} />
       </div>
-      {sameEnvironment && <p className="message error">Source and target are the same environment.</p>}
+      {sameEnvironment && <Message kind="error">Source and target are the same environment.</Message>}
       <div className="actions">
-        <button type="button" className="primary" disabled={!source || !target || !!sameEnvironment} onClick={onNext}>
+        <button
+          type="button"
+          className="btn continue-btn"
+          disabled={!source || !target || !!sameEnvironment}
+          onClick={onNext}
+        >
           Next: choose items
         </button>
       </div>
@@ -43,6 +49,7 @@ const EnvironmentForm = ({ label, connection, onChange }: FormProps) => {
   const [environmentId, setEnvironmentId] = useState(connection?.environmentId ?? "");
   const [apiKey, setApiKey] = useState(connection?.apiKey ?? "");
   const [status, setStatus] = useState<{ readonly loading: boolean; readonly error?: string }>({ loading: false });
+  const id = useId();
 
   const handleConnect = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -64,23 +71,39 @@ const EnvironmentForm = ({ label, connection, onChange }: FormProps) => {
   return (
     <form className="card" onSubmit={handleConnect} autoComplete="off">
       <h3>{label}</h3>
-      <label>
-        Environment ID
-        <input value={environmentId} onChange={edit(setEnvironmentId)} placeholder="00000000-0000-0000-0000-000000000000" />
-      </label>
-      <label>
-        Management API key
-        <input type="password" value={apiKey} onChange={edit(setApiKey)} />
-      </label>
-      <button type="submit" disabled={!environmentId.trim() || !apiKey.trim() || status.loading}>
-        {status.loading ? "Connecting…" : "Connect"}
+      <div className="field">
+        <div className="field-label">
+          <label htmlFor={`${id}-environment`}>Environment ID</label>
+          <Tooltip text="Found under Environment settings, or in the app.kontent.ai/<environment-id> URL." />
+        </div>
+        <input
+          id={`${id}-environment`}
+          value={environmentId}
+          onChange={edit(setEnvironmentId)}
+          placeholder="00000000-0000-0000-0000-000000000000"
+        />
+      </div>
+      <div className="field">
+        <div className="field-label">
+          <label htmlFor={`${id}-key`}>Management API key</label>
+          <Tooltip text="A Management API key for this environment, from Project settings > API keys. It is kept in this browser tab only and cleared when you close or reload it." />
+        </div>
+        <input id={`${id}-key`} type="password" value={apiKey} onChange={edit(setApiKey)} />
+      </div>
+      <button
+        type="submit"
+        className="btn continue-btn connect-btn"
+        disabled={!environmentId.trim() || !apiKey.trim() || status.loading}
+      >
+        {status.loading && <span className="loading-span" aria-hidden="true" />}
+        {status.loading ? "Connecting" : "Connect"}
       </button>
       {connection && (
-        <p className="message ok">
+        <Message kind="ok">
           Connected to <strong>{connection.projectName}</strong>, environment <strong>{connection.environmentName}</strong>
-        </p>
+        </Message>
       )}
-      {status.error && <p className="message error">{status.error}</p>}
+      {status.error && <Message kind="error">{status.error}</Message>}
     </form>
   );
 };

@@ -58,7 +58,8 @@ If both print a status code instead of a CORS error, you are clear. Then try a r
 | `src/lib/linkedItems.ts` | Finding linked items and rich-text references, breadth first |
 | `src/lib/plan.ts` | Building the preview and the checks against the target |
 | `src/lib/copy.ts` | Calling `migrateAsync` and summarizing the result |
-| `src/components/` | One component per step |
+| `src/components/` | One component per step, plus `ui.tsx` for the shared message and tooltip pieces |
+| `src/styles.css` | The visual style, matching the author's other Kontent.ai tools (export tool, content localization auditor, usage insights, asset description auditor): the same colors, Inter font, gradient title bar, pill buttons and inputs, and two-part messages |
 
 ## Known limitations and next steps
 

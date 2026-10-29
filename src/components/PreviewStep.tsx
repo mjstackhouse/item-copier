@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { errorMessage, type Connection, type SourceData } from "../lib/kontent";
 import { buildPlan, type Plan } from "../lib/plan";
 import type { LiveEffect } from "../lib/publishing";
+import { Message } from "./ui";
 import type { Selection } from "./SelectStep";
 
 type Props = {
@@ -43,9 +44,9 @@ export const PreviewStep = ({ source, target, sourceData, selection, onBack, onC
     return (
       <section>
         <h2>Preview</h2>
-        <p className="message error">Could not build the preview: {error}</p>
+        <Message kind="error">Could not build the preview: {error}</Message>
         <div className="actions">
-          <button type="button" onClick={onBack}>
+          <button type="button" className="btn back-btn" onClick={onBack}>
             Back
           </button>
         </div>
@@ -57,8 +58,8 @@ export const PreviewStep = ({ source, target, sourceData, selection, onBack, onC
     return (
       <section>
         <h2>Preview</h2>
-        <p className="muted" aria-live="polite">
-          {progress}…
+        <p className="loading-general" role="status">
+          {progress}
         </p>
       </section>
     );
@@ -96,18 +97,18 @@ export const PreviewStep = ({ source, target, sourceData, selection, onBack, onC
       </p>
 
       {plan.blockers.map((b) => (
-        <p key={b} className="message error">
+        <Message key={b} kind="error">
           {b}
-        </p>
+        </Message>
       ))}
       {plan.warnings.map((w) => (
-        <p key={w} className="message warning">
+        <Message key={w} kind="warning">
           {w}
-        </p>
+        </Message>
       ))}
 
       {liveChanges.length > 0 && (
-        <div className="message warning">
+        <Message kind="warning">
           <p>
             The copy makes each item's publishing state in <strong>{target.environmentName}</strong> match the source:
           </p>
@@ -116,7 +117,7 @@ export const PreviewStep = ({ source, target, sourceData, selection, onBack, onC
               <li key={text}>{text}</li>
             ))}
           </ul>
-        </div>
+        </Message>
       )}
 
       <div className="table-wrap">
@@ -170,12 +171,12 @@ export const PreviewStep = ({ source, target, sourceData, selection, onBack, onC
       )}
 
       <div className="actions">
-        <button type="button" onClick={onBack}>
+        <button type="button" className="btn back-btn" onClick={onBack}>
           Back
         </button>
         <button
           type="button"
-          className="primary"
+          className="btn continue-btn"
           disabled={plan.blockers.length > 0 || (confirmParts.length > 0 && !confirmed)}
           onClick={() => onConfirm(plan)}
         >

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { ConnectStep } from "./components/ConnectStep";
 import { CopyStep } from "./components/CopyStep";
 import { PreviewStep } from "./components/PreviewStep";
+import { Message } from "./components/ui";
 import { emptySearch, type SearchState, type Selection, SelectStep } from "./components/SelectStep";
 import { type Connection, errorMessage, loadSourceData, type SourceData } from "./lib/kontent";
 import type { Plan } from "./lib/plan";
@@ -57,8 +58,11 @@ export const App = () => {
 
   return (
     <main>
+      <p id="app-title">Item Copier</p>
       <header>
-        <h1>Copy content items between environments</h1>
+        <p className="intro">
+          Copy content items, the items they link to and the assets they use from one Kontent.ai environment to another.
+        </p>
         <ol className="stepper">
           {steps.map((s, index) => (
             <li
@@ -98,12 +102,14 @@ export const App = () => {
           <section>
             <h2>Choose items</h2>
             {sourceDataError ? (
-              <p className="message error">Could not load the source environment: {sourceDataError}</p>
+              <Message kind="error">Could not load the source environment: {sourceDataError}</Message>
             ) : (
-              <p className="muted">Loading languages and content types from the source environment…</p>
+              <p className="loading-general" role="status">
+                Loading languages and content types from the source environment
+              </p>
             )}
             <div className="actions">
-              <button type="button" onClick={() => setStep("connect")}>
+              <button type="button" className="btn back-btn" onClick={() => setStep("connect")}>
                 Back
               </button>
             </div>
