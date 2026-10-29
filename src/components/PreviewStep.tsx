@@ -127,6 +127,14 @@ export const PreviewStep = ({
   const copied = languagesToCopy(selection, sourceData.languages);
   const languageSummary =
     copied.length > 5 ? `${copied.length} languages` : copied.join(", ");
+  // Grouped by item: listing every variant would repeat long item names once per missing language.
+  const skippedGroups = new Map<string, { name: string; languages: string[] }>();
+  for (const v of plan.skippedVariants) {
+    const group = skippedGroups.get(v.itemId) ?? { name: v.itemName, languages: [] };
+    group.languages.push(v.languageCodename);
+    skippedGroups.set(v.itemId, group);
+  }
+  const skippedByItem = [...skippedGroups.entries()].map(([id, group]) => ({ id, ...group }));
   const itemCount = new Set(plan.rows.map((r) => r.id)).size;
   const variantCount = (id: string) => plan.rows.filter((r) => r.id === id).length;
   const namesById = new Map(plan.rows.map((r) => [r.id, r.item.name]));
@@ -151,6 +159,24 @@ export const PreviewStep = ({
           {w}
         </Message>
       ))}
+      {skippedByItem.length > 0 && (
+        <Message kind="info">
+          <details>
+            <summary>
+              {plan.skippedVariants.length} language variant(s) don't exist in the source and are skipped.
+              {/* The text ("Show details" / "Hide details") comes from CSS, following the open state. */}
+              <span className="details-toggle" />
+            </summary>
+            <ul>
+              {skippedByItem.map(({ id, name, languages }) => (
+                <li key={id}>
+                  <strong>{name}:</strong> {listLanguages(languages)}
+                </li>
+              ))}
+            </ul>
+          </details>
+        </Message>
+      )}
       {plan.deletedReferenceCount > 0 && (
         <Message kind="warning">
           <p>
@@ -202,28 +228,6 @@ export const PreviewStep = ({
         </label>
       </fieldset>
 
-      {liveChanges.length > 0 && (
-        <Message kind="warning">
-          <p>
-            {publishMode === "match" ? (
-              <>
-                The copy makes each item's publishing state in <strong>{target.environmentName}</strong> match the
-                source:
-              </>
-            ) : (
-              <>
-                Nothing will be published or unpublished in <strong>{target.environmentName}</strong>, but:
-              </>
-            )}
-          </p>
-          <ul>
-            {liveChanges.map((text) => (
-              <li key={text}>{text}</li>
-            ))}
-          </ul>
-        </Message>
-      )}
-
       <div className="table-wrap">
         <table>
           <thead>
@@ -274,11 +278,38 @@ export const PreviewStep = ({
         </table>
       </div>
 
-      {confirmParts.length > 0 && (
-        <label className="checkbox confirm">
-          <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />I understand
-          that in {target.environmentName}, {confirmParts.join(", ")}.
-        </label>
+      {/* The publishing summary and the confirmation sit together, next to the Copy button. */}
+      {(liveChanges.length > 0 || confirmParts.length > 0) && (
+        <div className="before-copy">
+          <p className="section-heading">Before you copy</p>
+          {liveChanges.length > 0 && (
+            <>
+              <p>
+                {publishMode === "match" ? (
+                  <>
+                    The copy makes each item's publishing state in <strong>{target.environmentName}</strong> match the
+                    source:
+                  </>
+                ) : (
+                  <>
+                    Nothing will be published or unpublished in <strong>{target.environmentName}</strong>, but:
+                  </>
+                )}
+              </p>
+              <ul>
+                {liveChanges.map((text) => (
+                  <li key={text}>{text}</li>
+                ))}
+              </ul>
+            </>
+          )}
+          {confirmParts.length > 0 && (
+            <label className="checkbox">
+              <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />I
+              understand that in {target.environmentName}, {confirmParts.join(", ")}.
+            </label>
+          )}
+        </div>
       )}
 
       <div className="actions">
@@ -309,3 +340,8 @@ const effectBadgeClass: Record<LiveEffect, string> = {
   "schedule replaced": "badge-warn",
   "schedule cancelled": "badge-warn",
 };
+
+const listLanguages = (languages: readonly string[], limit = 6) =>
+  languages.length > limit
+    ? `${languages.slice(0, limit).join(", ")} and ${languages.length - limit} more`
+    : languages.join(", ");

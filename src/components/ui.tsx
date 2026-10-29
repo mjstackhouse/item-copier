@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 
-type MessageKind = "error" | "warning" | "ok";
+/** "info" is for things worth knowing that are not a problem, so it is styled neutrally. */
+type MessageKind = "error" | "warning" | "ok" | "info";
 
-const icons: Record<MessageKind, string> = { error: "⚠", warning: "⚠", ok: "✓" };
+const icons: Record<MessageKind, string> = { error: "⚠", warning: "⚠", ok: "✓", info: "ⓘ" };
 
 /** A message with a colored icon section next to the text, as in the author's other Kontent.ai tools. */
 export const Message = ({

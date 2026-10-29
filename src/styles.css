@@ -603,6 +603,41 @@ input[type="radio"] {
   color: white;
 }
 
+.message-info .message-icon {
+  background: var(--color-gray-300);
+  color: var(--lighter-black);
+  font-weight: 400;
+}
+
+/* A one-line message that expands to show details. */
+.message-text details > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.message-text details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.message-text details > summary .details-toggle {
+  margin-left: 6px;
+  color: var(--darker-purple);
+  text-decoration: underline;
+}
+
+.message-text details > summary .details-toggle::after {
+  content: "Show details";
+}
+
+.message-text details[open] > summary .details-toggle::after {
+  content: "Hide details";
+}
+
+.message-text details ul {
+  margin-top: 6px;
+  padding-left: 1.25rem;
+}
+
 /* Keeps the line breaks in multi-line toolkit errors. */
 .message.multiline .message-text {
   white-space: pre-wrap;
@@ -685,8 +720,30 @@ tbody tr:last-child td {
   gap: 2px;
 }
 
-.confirm {
-  margin-top: 16px;
+/* "Before you copy": the publishing changes and the confirmation, right above the Copy button. */
+.before-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 1.5rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--dark-gray);
+  border-radius: 0.75rem;
+  font-size: 13px;
+}
+
+.before-copy p,
+.before-copy ul {
+  margin: 0;
+}
+
+.before-copy .section-heading {
+  margin-bottom: 0;
+}
+
+.before-copy label.checkbox {
+  margin-top: 4px;
+  font-size: 14px;
 }
 
 /* Progress log, as the localization auditor's */

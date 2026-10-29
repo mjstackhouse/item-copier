@@ -34,6 +34,8 @@ export type Plan = {
    * it is told to skip them, which the preview asks for.
    */
   readonly deletedReferenceCount: number;
+  /** Variants skipped because the item has no variant in that language in the source. Not a problem, just information. */
+  readonly skippedVariants: readonly { readonly itemId: string; readonly itemName: string; readonly languageCodename: string }[];
 };
 
 /**
@@ -80,13 +82,6 @@ export const buildPlan = async (params: {
   if (pickedInNoLanguage.length) {
     blockers.push(
       `These selected items have a variant in none of the chosen languages: ${pickedInNoLanguage.join(", ")}. Remove them or choose other languages.`,
-    );
-  }
-  if (skippedVariants.length) {
-    warnings.push(
-      `${skippedVariants.length} language variant(s) don't exist in the source and are skipped: ${listWithLimit(
-        skippedVariants.map((w) => `${w.item.name} (${w.languageCodename})`),
-      )}.`,
     );
   }
 
@@ -188,7 +183,17 @@ export const buildPlan = async (params: {
       languageOrder(a.languageCodename) - languageOrder(b.languageCodename),
   );
 
-  return { rows, blockers, warnings, deletedReferenceCount: deletedReferences.length };
+  return {
+    rows,
+    blockers,
+    warnings,
+    deletedReferenceCount: deletedReferences.length,
+    skippedVariants: skippedVariants.map((w) => ({
+      itemId: w.item.id,
+      itemName: w.item.name,
+      languageCodename: w.languageCodename,
+    })),
+  };
 };
 
 /**
@@ -246,9 +251,6 @@ const getTargetState = async (
 const unique = (values: readonly string[]) => [...new Set(values)];
 
 const namesOf = (items: readonly PlannedItem[]) => unique(items.map((p) => p.item.name)).join(", ");
-
-const listWithLimit = (values: readonly string[], limit = 10) =>
-  values.length > limit ? `${values.slice(0, limit).join(", ")} and ${values.length - limit} more` : values.join(", ");
 
 /**
  * The toolkit looks up the taxonomy group of every taxonomy element while reading items, even when
