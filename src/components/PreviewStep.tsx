@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { errorMessage, type Connection, type SourceData } from "../lib/kontent";
 import { buildPlan, type Plan } from "../lib/plan";
-import type { LiveEffect } from "../lib/publishing";
+import { type LiveEffect, predict, type PublishMode } from "../lib/publishing";
 import { Message } from "./ui";
 import type { Selection } from "./SelectStep";
 
@@ -11,11 +11,22 @@ type Props = {
   readonly target: Connection;
   readonly sourceData: SourceData;
   readonly selection: Selection;
+  readonly publishMode: PublishMode;
+  readonly onPublishModeChange: (mode: PublishMode) => void;
   readonly onBack: () => void;
   readonly onConfirm: (plan: Plan) => void;
 };
 
-export const PreviewStep = ({ source, target, sourceData, selection, onBack, onConfirm }: Props) => {
+export const PreviewStep = ({
+  source,
+  target,
+  sourceData,
+  selection,
+  publishMode,
+  onPublishModeChange,
+  onBack,
+  onConfirm,
+}: Props) => {
   const [plan, setPlan] = useState<Plan>();
   const [progress, setProgress] = useState("Starting");
   const [error, setError] = useState<string>();
@@ -65,12 +76,24 @@ export const PreviewStep = ({ source, target, sourceData, selection, onBack, onC
     );
   }
 
+  const rows = plan.rows.map((row) => ({
+    row,
+    prediction: row.sourcePublishing
+      ? predict({
+          mode: publishMode,
+          source: row.sourcePublishing,
+          target: row.targetPublishing,
+          firstStepName: row.firstStepName,
+        })
+      : { outcome: "", effects: [] },
+  }));
   const overwrites = plan.rows.filter((r) => r.targetStatus === "overwrites existing").length;
-  const countEffect = (effect: LiveEffect) => plan.rows.filter((r) => r.effects.includes(effect)).length;
+  const countEffect = (effect: LiveEffect) => rows.filter((r) => r.prediction.effects.includes(effect)).length;
   const goesLive = countEffect("goes live");
   const replacesLive = countEffect("replaces live content");
   const removedFromLive = countEffect("removed from live site");
   const schedulesReplaced = countEffect("schedule replaced");
+  const schedulesCancelled = countEffect("schedule cancelled");
   const liveChanges = [
     removedFromLive > 0 &&
       `${removedFromLive} item(s) will be unpublished and removed from the live site, because they are not published in the source.`,
@@ -78,12 +101,19 @@ export const PreviewStep = ({ source, target, sourceData, selection, onBack, onC
     goesLive > 0 && `${goesLive} item(s) will be published and go live right away.`,
     schedulesReplaced > 0 &&
       `${schedulesReplaced} item(s) have scheduled publishing in the target that will be cancelled and replaced with the source's.`,
+    schedulesCancelled > 0 &&
+      `${schedulesCancelled} item(s) have scheduled publishing in the target that will be cancelled.`,
   ].filter((text): text is string => !!text);
   const confirmParts = [
     overwrites > 0 && `${overwrites} existing item(s) will be overwritten`,
     removedFromLive > 0 && `${removedFromLive} item(s) will be unpublished`,
     goesLive + replacesLive > 0 && `${goesLive + replacesLive} item(s) will be published right away`,
   ].filter((text): text is string => !!text);
+  // What needs confirming depends on the mode, so a change of mode asks for it again.
+  const changeMode = (mode: PublishMode) => {
+    setConfirmed(false);
+    onPublishModeChange(mode);
+  };
   const namesById = new Map(plan.rows.map((r) => [r.id, r.item.name]));
   const nameOf = (id: string | undefined) => (id ? (namesById.get(id) ?? id) : "");
 
@@ -107,10 +137,53 @@ export const PreviewStep = ({ source, target, sourceData, selection, onBack, onC
         </Message>
       ))}
 
+      <fieldset className="publish-mode">
+        <legend className="section-heading">Publishing</legend>
+        <label className="checkbox">
+          <input
+            type="radio"
+            name="publish-mode"
+            checked={publishMode === "match"}
+            onChange={() => changeMode("match")}
+          />
+          <span>
+            <strong>Match the source</strong>
+            <span className="muted">
+              Items published in the source are published in the target, items not published in the source are
+              unpublished there, and schedules are copied.
+            </span>
+          </span>
+        </label>
+        <label className="checkbox">
+          <input
+            type="radio"
+            name="publish-mode"
+            checked={publishMode === "drafts"}
+            onChange={() => changeMode("drafts")}
+          />
+          <span>
+            <strong>Copy as drafts</strong>
+            <span className="muted">
+              Nothing is published or unpublished. Items that are live in the target stay live, with the copied
+              content as a new draft on top. Schedules are not copied.
+            </span>
+          </span>
+        </label>
+      </fieldset>
+
       {liveChanges.length > 0 && (
         <Message kind="warning">
           <p>
-            The copy makes each item's publishing state in <strong>{target.environmentName}</strong> match the source:
+            {publishMode === "match" ? (
+              <>
+                The copy makes each item's publishing state in <strong>{target.environmentName}</strong> match the
+                source:
+              </>
+            ) : (
+              <>
+                Nothing will be published or unpublished in <strong>{target.environmentName}</strong>, but:
+              </>
+            )}
           </p>
           <ul>
             {liveChanges.map((text) => (
@@ -132,7 +205,7 @@ export const PreviewStep = ({ source, target, sourceData, selection, onBack, onC
             </tr>
           </thead>
           <tbody>
-            {plan.rows.map((row) => (
+            {rows.map(({ row, prediction }) => (
               <tr key={row.id}>
                 <td>
                   {row.item.name}
@@ -146,10 +219,10 @@ export const PreviewStep = ({ source, target, sourceData, selection, onBack, onC
                   </span>
                 </td>
                 <td>
-                  {row.outcome}
-                  {row.effects.length > 0 && (
+                  {prediction.outcome}
+                  {prediction.effects.length > 0 && (
                     <div className="badges">
-                      {row.effects.map((effect) => (
+                      {prediction.effects.map((effect) => (
                         <span key={effect} className={`badge ${effectBadgeClass[effect]}`}>
                           {effect}
                         </span>
@@ -192,4 +265,5 @@ const effectBadgeClass: Record<LiveEffect, string> = {
   "replaces live content": "badge-warn",
   "removed from live site": "badge-danger",
   "schedule replaced": "badge-warn",
+  "schedule cancelled": "badge-warn",
 };

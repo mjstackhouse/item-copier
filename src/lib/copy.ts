@@ -1,6 +1,7 @@
-import { exportAsync, importAsync, type Logger, type LogMessage } from "@kontent-ai/migration-toolkit";
+import { exportAsync, importAsync, type Logger, type LogMessage, type MigrationData } from "@kontent-ai/migration-toolkit";
 
 import { type Connection, errorMessage } from "./kontent";
+import { firstSteps, type PublishMode, type WorkflowSteps } from "./publishing";
 
 export type LogEntry = LogMessage & { readonly time: Date };
 
@@ -63,6 +64,9 @@ export const copyItems = async (params: {
   readonly itemCodenames: readonly string[];
   readonly languageCodename: string;
   readonly skipMissingReferences: boolean;
+  readonly publishMode: PublishMode;
+  /** The source environment's workflow steps, needed to turn versions into drafts. */
+  readonly sourceWorkflowSteps: WorkflowSteps;
   readonly signal: AbortSignal;
   readonly onLog: (entry: LogEntry) => void;
 }): Promise<CopyResult> => {
@@ -127,7 +131,7 @@ export const copyItems = async (params: {
       environmentId: params.target.environmentId,
       apiKey: params.target.apiKey,
       logger,
-      data: migrationData,
+      data: params.publishMode === "drafts" ? toDrafts(migrationData, params.sourceWorkflowSteps) : migrationData,
     });
 
     const summary = summarize(importResult, itemsNotRead);
@@ -138,6 +142,35 @@ export const copyItems = async (params: {
     // Toolkit errors carry terminal color codes; rethrow with a message the UI can show as is.
     throw new Error(stripColors(errorMessage(error)), { cause: error });
   }
+};
+
+/**
+ * Rewrites the exported data so the import publishes nothing: the published version is dropped when
+ * there is a newer draft, and any published, scheduled or archived version moves to the workflow's
+ * first step without a schedule. `keepTargetPublished` is read by this app's patch to the toolkit
+ * (see patches/), which otherwise unpublishes target items whose import data has no published version.
+ */
+const toDrafts = (data: MigrationData, steps: WorkflowSteps): MigrationData => {
+  const first = firstSteps(steps);
+  const stepKind = (workflowCodename: string, stepCodename: string) =>
+    [...steps.values()].find((s) => s.workflowCodename === workflowCodename && s.codename === stepCodename)?.kind ??
+    "draft";
+
+  return {
+    ...data,
+    items: data.items.map((item) => {
+      const workflow = item.system.workflow.codename;
+      const firstStep = first.get(workflow)?.codename;
+      const drafts = item.versions.filter((v) => stepKind(workflow, v.workflow_step.codename) !== "published");
+      const versions = (drafts.length ? drafts : item.versions).map((v) => ({
+        ...v,
+        workflow_step:
+          stepKind(workflow, v.workflow_step.codename) === "draft" || !firstStep ? v.workflow_step : { codename: firstStep },
+        schedule: undefined,
+      }));
+      return { ...item, versions, keepTargetPublished: true };
+    }),
+  };
 };
 
 const summarize = (importResult: Awaited<ReturnType<typeof importAsync>>, itemsNotRead: readonly string[]): CopySummary => {

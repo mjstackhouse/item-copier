@@ -1,10 +1,8 @@
 import { type Connection, isNotFound, mapWithLimit, type SourceData } from "./kontent";
 import { expandWithLinkedItems, type PlannedItem } from "./linkedItems";
 import {
-  describeOutcome,
-  getLiveEffects,
+  firstSteps,
   getPublishingState,
-  type LiveEffect,
   loadWorkflowSteps,
   type PublishingState,
   type WorkflowSteps,
@@ -17,10 +15,12 @@ export type PlanRow = PlannedItem & {
   readonly targetStatus: TargetStatus;
   /** Content type of the existing target item; undefined when the item is new to the target. */
   readonly targetTypeCodename?: string;
-  /** The state the item will be in, in the target, after the copy. */
-  readonly outcome: string;
-  /** How the copy changes what is live in the target for this item. */
-  readonly effects: readonly LiveEffect[];
+  /** Publishing state of the source variant; the preview predicts the outcome from it for the chosen mode. */
+  readonly sourcePublishing?: PublishingState;
+  /** Publishing state of the existing target variant; undefined when the target has none. */
+  readonly targetPublishing?: PublishingState;
+  /** First step of the item's workflow, where copied drafts can land. */
+  readonly firstStepName: string;
 };
 
 export type Plan = {
@@ -126,10 +126,13 @@ export const buildPlan = async (params: {
     ...checkWorkflows(sourceData.workflowSteps, targetSteps, known),
   );
 
+  const sourceFirstSteps = firstSteps(sourceData.workflowSteps);
+
   params.onProgress(`Checking publishing state and which of the ${known.length} items already exist in the target`);
 
   const rows = await mapWithLimit(known, 5, async (planned): Promise<PlanRow> => {
     const typeCodename = sourceData.typesById.get(planned.item.typeId)?.codename ?? "";
+    const sourceStep = planned.state && sourceData.workflowSteps.get(planned.state.stepId);
     const [sourceState, targetState] = await Promise.all([
       planned.state
         ? getPublishingState({
@@ -147,8 +150,9 @@ export const buildPlan = async (params: {
       typeCodename,
       targetTypeCodename: targetState.typeId ? targetTypeCodenames.get(targetState.typeId) : undefined,
       targetStatus: targetState.status,
-      outcome: sourceState ? describeOutcome(sourceState) : "",
-      effects: sourceState ? getLiveEffects(sourceState, targetState.publishing) : [],
+      sourcePublishing: sourceState,
+      targetPublishing: targetState.publishing,
+      firstStepName: (sourceStep && sourceFirstSteps.get(sourceStep.workflowCodename)?.name) ?? "",
     };
   });
 

@@ -14,3 +14,18 @@ index ee6fc65..37598c1 100644
  }
  export function geSizeInBytes(data) {
      return data instanceof Blob ? data.size : data.byteLength;
+diff --git a/node_modules/@kontent-ai/migration-toolkit/dist/import/importers/language-variant-importer.js b/node_modules/@kontent-ai/migration-toolkit/dist/import/importers/language-variant-importer.js
+index 4290869..d03e20f 100644
+--- a/node_modules/@kontent-ai/migration-toolkit/dist/import/importers/language-variant-importer.js
++++ b/node_modules/@kontent-ai/migration-toolkit/dist/import/importers/language-variant-importer.js
+@@ -118,7 +118,9 @@ export function languageVariantImporter(config) {
+             })
+             : undefined;
+         // if target env contains published version & imported version not, unpublish it from the target env
+-        if (targetVariantState.publishedLanguageVariant && !publishedVersion) {
++        // Patched for the item copier: items marked keepTargetPublished keep their live version in the target,
++        // and the copied content is added as a new draft on top of it.
++        if (targetVariantState.publishedLanguageVariant && !publishedVersion && !migrationItem.keepTargetPublished) {
+             await workflowImporter.unpublishLanguageVariantAsync({
+                 logSpinner,
+                 migrationItem,

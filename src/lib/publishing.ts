@@ -36,7 +36,19 @@ export type PublishingState = {
  * Changes to what is live in the target. The toolkit makes the target match the source's
  * publishing state, so these follow from comparing the two.
  */
-export type LiveEffect = "goes live" | "replaces live content" | "removed from live site" | "schedule replaced";
+export type LiveEffect =
+  | "goes live"
+  | "replaces live content"
+  | "removed from live site"
+  | "schedule replaced"
+  | "schedule cancelled";
+
+/**
+ * "match": the target ends up with the source's publishing state (the toolkit's own behavior).
+ * "drafts": nothing is published or unpublished. Items live in the target stay live, with the
+ * copied content as a new draft on top, and schedules are not copied. See `toDrafts` in copy.ts.
+ */
+export type PublishMode = "match" | "drafts";
 
 export const loadWorkflowSteps = async (client: ManagementClient): Promise<WorkflowSteps> => {
   const workflows = (await client.listWorkflows().toPromise()).data;
@@ -101,8 +113,37 @@ const hasPublishedVersionAsync = async (
   }
 };
 
-/** Describes the state the item will be in, in the target, after the copy. */
-export const describeOutcome = (source: PublishingState): string => {
+/** The first step of each workflow, by workflow codename: where the toolkit puts new drafts. */
+export const firstSteps = (steps: WorkflowSteps): ReadonlyMap<string, WorkflowStepInfo> => {
+  const first = new Map<string, WorkflowStepInfo>();
+  // Steps are stored in workflow order, so the first draft step seen is the workflow's first step.
+  for (const step of steps.values()) {
+    if (step.kind === "draft" && !first.has(step.workflowCodename)) first.set(step.workflowCodename, step);
+  }
+  return first;
+};
+
+export type Prediction = {
+  /** The state the item will be in, in the target, after the copy. */
+  readonly outcome: string;
+  /** How the copy changes what is live in the target. */
+  readonly effects: readonly LiveEffect[];
+};
+
+/**
+ * Predicts what the copy does to one item in the target. `target` is undefined when the target
+ * has no variant yet; `firstStepName` is the first step of the item's workflow.
+ */
+export const predict = (params: {
+  readonly mode: PublishMode;
+  readonly source: PublishingState;
+  readonly target: PublishingState | undefined;
+  readonly firstStepName: string;
+}): Prediction =>
+  params.mode === "drafts" ? predictDrafts(params) : { outcome: describeSource(params.source), effects: matchEffects(params) };
+
+/** In "match" mode the target ends up in the source's state. */
+const describeSource = (source: PublishingState): string => {
   if (source.publishTime) {
     const when = formatTime(source.publishTime);
     return source.hasPublishedVersion && source.stepKind !== "published"
@@ -122,8 +163,7 @@ export const describeOutcome = (source: PublishingState): string => {
   }
 };
 
-/** Works out how the copy changes what is live in the target. `target` is undefined when the target has no variant yet. */
-export const getLiveEffects = (source: PublishingState, target: PublishingState | undefined): LiveEffect[] => {
+const matchEffects = ({ source, target }: { source: PublishingState; target: PublishingState | undefined }) => {
   const effects: LiveEffect[] = [];
   const targetLive = target?.hasPublishedVersion ?? false;
 
@@ -134,6 +174,28 @@ export const getLiveEffects = (source: PublishingState, target: PublishingState 
   if (target?.publishTime || target?.unpublishTime) effects.push("schedule replaced");
 
   return effects;
+};
+
+/**
+ * In "drafts" mode the copied content becomes a draft: in the source's step when the source's latest
+ * version is a draft, otherwise in the workflow's first step. A live target version stays live.
+ */
+const predictDrafts = ({
+  source,
+  target,
+  firstStepName,
+}: {
+  source: PublishingState;
+  target: PublishingState | undefined;
+  firstStepName: string;
+}): Prediction => {
+  const draftStep = stepLabel(source.stepKind === "draft" ? source.stepName : firstStepName);
+  const outcome = target?.hasPublishedVersion
+    ? `Live version unchanged, with the copied content as a new draft in ${draftStep}`
+    : `Not published, in ${draftStep}`;
+  // The toolkit cancels any schedule in the target before copying; drafts mode copies none.
+  const effects: LiveEffect[] = target?.publishTime || target?.unpublishTime ? ["schedule cancelled"] : [];
+  return { outcome, effects };
 };
 
 // The name is empty when the step was not found in the environment's workflows.

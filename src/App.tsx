@@ -7,6 +7,7 @@ import { Message } from "./components/ui";
 import { emptySearch, type SearchState, type Selection, SelectStep } from "./components/SelectStep";
 import { type Connection, errorMessage, loadSourceData, type SourceData } from "./lib/kontent";
 import type { Plan } from "./lib/plan";
+import type { PublishMode } from "./lib/publishing";
 
 type Step = "connect" | "select" | "preview" | "copy";
 
@@ -28,6 +29,7 @@ export const App = () => {
   const [selection, setSelection] = useState<Selection>(emptySelection);
   const [search, setSearch] = useState<SearchState>(emptySearch);
   const [plan, setPlan] = useState<Plan>();
+  const [publishMode, setPublishMode] = useState<PublishMode>("match");
 
   // Load languages and types whenever the source changes. Items are searched for on demand.
   useEffect(() => {
@@ -125,6 +127,8 @@ export const App = () => {
           target={target}
           sourceData={sourceData}
           selection={selection}
+          publishMode={publishMode}
+          onPublishModeChange={setPublishMode}
           onBack={() => setStep("select")}
           onConfirm={(p) => {
             setPlan(p);
@@ -133,12 +137,14 @@ export const App = () => {
         />
       )}
 
-      {step === "copy" && source && target && plan && (
+      {step === "copy" && source && target && sourceData && plan && (
         <CopyStep
           source={source}
           target={target}
           selection={selection}
           plan={plan}
+          publishMode={publishMode}
+          sourceWorkflowSteps={sourceData.workflowSteps}
           onStartOver={() => {
             setPlan(undefined);
             setSelection({ ...selection, pickedItems: [] });

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { type CopyResult, copyItems, type LogEntry } from "../lib/copy";
 import { type Connection, errorMessage } from "../lib/kontent";
 import type { Plan } from "../lib/plan";
+import type { PublishMode, WorkflowSteps } from "../lib/publishing";
 import type { Selection } from "./SelectStep";
 import { Message } from "./ui";
 
@@ -11,10 +12,12 @@ type Props = {
   readonly target: Connection;
   readonly selection: Selection;
   readonly plan: Plan;
+  readonly publishMode: PublishMode;
+  readonly sourceWorkflowSteps: WorkflowSteps;
   readonly onStartOver: () => void;
 };
 
-export const CopyStep = ({ source, target, selection, plan, onStartOver }: Props) => {
+export const CopyStep = ({ source, target, selection, plan, publishMode, sourceWorkflowSteps, onStartOver }: Props) => {
   const [log, setLog] = useState<LogEntry[]>([]);
   const [result, setResult] = useState<CopyResult>();
   const [error, setError] = useState<string>();
@@ -34,12 +37,14 @@ export const CopyStep = ({ source, target, selection, plan, onStartOver }: Props
       itemCodenames: plan.rows.map((r) => r.item.codename),
       languageCodename: selection.languageCodename,
       skipMissingReferences: selection.skipMissingReferences,
+      publishMode,
+      sourceWorkflowSteps,
       signal: abort.current.signal,
       onLog: (entry) => setLog((previous) => [...previous, entry]),
     })
       .then(setResult)
       .catch((e: unknown) => setError(errorMessage(e)));
-  }, [source, target, selection, plan]);
+  }, [source, target, selection, plan, publishMode, sourceWorkflowSteps]);
 
   // Braces matter: an effect's return value is treated as its cleanup function.
   useEffect(() => {
