@@ -4,7 +4,7 @@ import { errorMessage, type Connection, type SourceData } from "../lib/kontent";
 import { buildPlan, type Plan } from "../lib/plan";
 import { type LiveEffect, predict, type PublishMode } from "../lib/publishing";
 import { Message } from "./ui";
-import type { Selection } from "./SelectStep";
+import { languagesToCopy, type Selection } from "./SelectStep";
 
 type Props = {
   readonly source: Connection;
@@ -39,7 +39,7 @@ export const PreviewStep = ({
       target,
       sourceData,
       pickedIds: selection.pickedItems.map((i) => i.id),
-      languageCodenames: selection.copyLanguages,
+      languageCodenames: languagesToCopy(selection, sourceData.languages),
       linkedItemsDepth: selection.linkedItemsDepth,
       skipMissingReferences: selection.skipMissingReferences,
       onProgress: (m) => !cancelled && setProgress(m),
@@ -114,6 +114,9 @@ export const PreviewStep = ({
     setConfirmed(false);
     onPublishModeChange(mode);
   };
+  const copied = languagesToCopy(selection, sourceData.languages);
+  const languageSummary =
+    copied.length > 5 ? `${copied.length} languages` : copied.join(", ");
   const itemCount = new Set(plan.rows.map((r) => r.id)).size;
   const variantCount = (id: string) => plan.rows.filter((r) => r.id === id).length;
   const namesById = new Map(plan.rows.map((r) => [r.id, r.item.name]));
@@ -125,7 +128,7 @@ export const PreviewStep = ({
       <p>
         <strong>{itemCount}</strong> item(s) in <strong>{plan.rows.length}</strong> language variant(s) will be copied
         from <strong>{source.environmentName}</strong> to <strong>{target.environmentName}</strong> (
-        {selection.copyLanguages.join(", ")}). Assets they use are copied too.
+        {languageSummary}). Assets they use are copied too.
       </p>
 
       {plan.blockers.map((b) => (

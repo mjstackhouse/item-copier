@@ -33,7 +33,7 @@ If both print a status code instead of a CORS error, you are clear. Then try a r
 ## How it works
 
 1. **Connect.** The user enters an environment ID and Management API key for the source and the target. Each is checked by loading the environment's name.
-2. **Choose items.** The user picks the languages to copy (all of them by default, since copying an item usually means all of its translations) and a language to search in, then searches the source by item name or text content (an empty search lists every item in that language). Each search uses the Management API's filter endpoint, 50 items per page, with a **Load more** button for further pages, plus one bulk request for the items' names and types. Picked items stay in a "Selected items" list across searches. Other options: how many levels of linked items to include (0 to 3), and whether to skip references to deleted items.
+2. **Choose items.** The user picks the languages to copy ("All languages" by default, since copying an item usually means all of its translations, or "Choose languages", which shows a searchable multi-select built with react-select, as in the author's usage insights and asset description auditor) and a language to search in, then searches the source by item name or text content (an empty search lists every item in that language). Each search uses the Management API's filter endpoint, 50 items per page, with a **Load more** button for further pages, plus one bulk request for the items' names and types. Picked items stay in a "Selected items" list across searches. Other options: how many levels of linked items to include (0 to 3), and whether to skip references to deleted items.
 3. **Preview.** The app works out the full list and checks the target:
    - loads the selected items and each level of linked items with bulk requests (up to 100 items each), and follows linked-items elements, subpages elements, rich-text linked items, rich-text links to items, and the same inside rich-text components
    - works per language: each item is copied in every chosen language it has a variant in, and linked items are followed separately in each language, because translations can link to different items. The preview has one row per language variant, grouped by item.
@@ -62,7 +62,7 @@ If both print a status code instead of a CORS error, you are clear. Then try a r
 | `src/lib/linkedItems.ts` | Finding linked items and rich-text references, breadth first |
 | `src/lib/plan.ts` | Building the preview and the checks against the target |
 | `src/lib/copy.ts` | Calling `migrateAsync` and summarizing the result |
-| `src/components/` | One component per step, plus `ui.tsx` for the shared message and tooltip pieces |
+| `src/components/` | One component per step, `LanguagePicker.tsx` for choosing the languages to copy, and `ui.tsx` for the shared message and tooltip pieces |
 | `src/styles.css` | The visual style, matching the author's other Kontent.ai tools (export tool, content localization auditor, usage insights, asset description auditor): the same colors, Inter font, gradient title bar, pill buttons and inputs, and two-part messages |
 
 ## Known limitations and next steps

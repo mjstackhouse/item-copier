@@ -20,7 +20,8 @@ const steps: readonly { readonly id: Step; readonly label: string }[] = [
 
 const emptySelection: Selection = {
   languageCodename: "",
-  copyLanguages: [],
+  copyAllLanguages: true,
+  chosenLanguages: [],
   pickedItems: [],
   linkedItemsDepth: 1,
   skipMissingReferences: false,
@@ -51,12 +52,8 @@ export const App = () => {
         if (cancelled) return;
         setSourceData(data);
         const defaultLanguage = data.languages.find((l) => l.isDefault) ?? data.languages[0];
-        // Copies every language by default: copying an item usually means all of its translations.
-        setSelection({
-          ...emptySelection,
-          languageCodename: defaultLanguage?.codename ?? "",
-          copyLanguages: data.languages.map((l) => l.codename),
-        });
+        // Copies every language by default (see emptySelection): copying an item usually means all of its translations.
+        setSelection({ ...emptySelection, languageCodename: defaultLanguage?.codename ?? "" });
       })
       .catch((e: unknown) => {
         console.error(e);

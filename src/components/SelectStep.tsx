@@ -1,17 +1,34 @@
 import { useMemo, useState } from "react";
 
-import { type Connection, errorMessage, type Item, type SearchResult, searchItems, type SourceData } from "../lib/kontent";
+import {
+  type Connection,
+  errorMessage,
+  type Item,
+  type Language,
+  type SearchResult,
+  searchItems,
+  type SourceData,
+} from "../lib/kontent";
+import { LanguagePicker } from "./LanguagePicker";
 import { Message } from "./ui";
 
 export type Selection = {
   /** The language to search in. */
   readonly languageCodename: string;
-  /** The languages to copy, in the source's language order. */
-  readonly copyLanguages: readonly string[];
+  /** True to copy every language; otherwise only `chosenLanguages`. */
+  readonly copyAllLanguages: boolean;
+  /** The languages picked under "Choose languages", in the source's language order. */
+  readonly chosenLanguages: readonly string[];
   readonly pickedItems: readonly Item[];
   readonly linkedItemsDepth: number;
   readonly skipMissingReferences: boolean;
 };
+
+/** The codenames of the languages to copy, in the source's language order. */
+export const languagesToCopy = (selection: Selection, languages: readonly Language[]): string[] =>
+  languages
+    .map((l) => l.codename)
+    .filter((c) => selection.copyAllLanguages || selection.chosenLanguages.includes(c));
 
 /** The last search and its loaded results; kept by the parent so it survives going back from the preview. */
 export type SearchState = {
@@ -89,15 +106,7 @@ export const SelectStep = ({
     onSearchChange({ phrase: search.phrase });
   };
 
-  const copying = new Set(selection.copyLanguages);
-  const allLanguages = sourceData.languages.every((l) => copying.has(l.codename));
-  // Keeps the source's language order, so the default language comes first.
-  const setCopyLanguages = (codenames: readonly string[]) =>
-    onChange({ ...selection, copyLanguages: sourceData.languages.map((l) => l.codename).filter((c) => codenames.includes(c)) });
-  const toggleLanguage = (codename: string) =>
-    setCopyLanguages(
-      copying.has(codename) ? selection.copyLanguages.filter((c) => c !== codename) : [...selection.copyLanguages, codename],
-    );
+  const noLanguages = languagesToCopy(selection, sourceData.languages).length === 0;
 
   const typeName = (typeId: string) => sourceData.typesById.get(typeId)?.name ?? "";
   const results = search.results;
@@ -140,29 +149,14 @@ export const SelectStep = ({
       </div>
 
       {sourceData.languages.length > 1 && (
-        <fieldset className="copy-languages">
-          <legend>Languages to copy</legend>
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={allLanguages}
-              onChange={(e) => setCopyLanguages(e.target.checked ? sourceData.languages.map((l) => l.codename) : [])}
-            />
-            All languages
-          </label>
-          {sourceData.languages.map((l) => (
-            <label key={l.id} className="checkbox">
-              <input
-                type="checkbox"
-                checked={copying.has(l.codename)}
-                onChange={() => toggleLanguage(l.codename)}
-              />
-              {l.name} ({l.codename})
-            </label>
-          ))}
-        </fieldset>
+        <LanguagePicker
+          languages={sourceData.languages}
+          copyAll={selection.copyAllLanguages}
+          chosen={selection.chosenLanguages}
+          onChange={({ copyAll, chosen }) => onChange({ ...selection, copyAllLanguages: copyAll, chosenLanguages: chosen })}
+        />
       )}
-      {selection.copyLanguages.length === 0 && <Message kind="warning">Choose at least one language to copy.</Message>}
+      {noLanguages && <Message kind="warning">Choose at least one language to copy.</Message>}
 
       <p className="hint">
         Each selected item is copied in every chosen language it has a variant in. Without linked items, the copied
@@ -246,7 +240,7 @@ export const SelectStep = ({
         <button
           type="button"
           className="btn continue-btn"
-          disabled={selection.pickedItems.length === 0 || selection.copyLanguages.length === 0}
+          disabled={selection.pickedItems.length === 0 || noLanguages}
           onClick={onNext}
         >
           Preview

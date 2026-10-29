@@ -14,7 +14,8 @@
     "@kontent-ai/management-sdk": "8.5.7",
     "@kontent-ai/migration-toolkit": "3.2.5",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "react-select": "^5.10.2"
   },
   "devDependencies": {
     "@types/react": "^19.1.0",
