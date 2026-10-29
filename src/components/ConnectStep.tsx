@@ -76,11 +76,18 @@ const EnvironmentForm = ({ label, connection, onChange }: FormProps) => {
           <label htmlFor={`${id}-environment`}>Environment ID</label>
           <Tooltip text="Found under Environment settings, or in the app.kontent.ai/<environment-id> URL." />
         </div>
+        {/* Password managers treat this as part of a login form because of the key field below;
+            these attributes ask the common ones (1Password, LastPass, Bitwarden, Dashlane) to leave it alone. */}
         <input
           id={`${id}-environment`}
           value={environmentId}
           onChange={edit(setEnvironmentId)}
           placeholder="00000000-0000-0000-0000-000000000000"
+          autoComplete="off"
+          data-1p-ignore
+          data-lpignore="true"
+          data-bwignore
+          data-form-type="other"
         />
       </div>
       <div className="field">

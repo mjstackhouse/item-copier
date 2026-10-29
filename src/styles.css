@@ -46,8 +46,12 @@ body {
   color: var(--lighter-black);
 }
 
+/*
+ * Wide enough for the preview table, narrow enough that form fields stay a comfortable length.
+ * In pixels on purpose: the root font size is 12px, so rem units here are smaller than usual.
+ */
 main {
-  max-width: 64rem;
+  max-width: 1280px;
   margin: 0 auto;
   padding: 6rem 3rem 3rem;
 }
