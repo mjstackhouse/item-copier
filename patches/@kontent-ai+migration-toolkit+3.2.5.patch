@@ -1,0 +1,16 @@
+diff --git a/node_modules/@kontent-ai/migration-toolkit/dist/core/utils/binary-data.utils.js b/node_modules/@kontent-ai/migration-toolkit/dist/core/utils/binary-data.utils.js
+index ee6fc65..37598c1 100644
+--- a/node_modules/@kontent-ai/migration-toolkit/dist/core/utils/binary-data.utils.js
++++ b/node_modules/@kontent-ai/migration-toolkit/dist/core/utils/binary-data.utils.js
+@@ -9,7 +9,10 @@ export async function getBinaryDataFromUrlAsync(url) {
+         retryStrategy: defaultRetryStrategy,
+     });
+     const contentLength = +(response.headers.find((m) => m.header.toLowerCase() === "content-length")?.value ?? 0);
+-    return { data: response.data, contentLength: contentLength };
++    // Browsers return an ArrayBuffer, which the migration data schema rejects; wrap it in a Blob.
++    // In Node.js the response is a Buffer and is returned unchanged.
++    const data = response.data instanceof ArrayBuffer ? new Blob([response.data]) : response.data;
++    return { data: data, contentLength: contentLength };
+ }
+ export function geSizeInBytes(data) {
+     return data instanceof Blob ? data.size : data.byteLength;
