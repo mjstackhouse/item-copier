@@ -4,7 +4,10 @@ import { type Connection, errorMessage, type Item, type SearchResult, searchItem
 import { Message } from "./ui";
 
 export type Selection = {
+  /** The language to search in. */
   readonly languageCodename: string;
+  /** The languages to copy, in the source's language order. */
+  readonly copyLanguages: readonly string[];
   readonly pickedItems: readonly Item[];
   readonly linkedItemsDepth: number;
   readonly skipMissingReferences: boolean;
@@ -86,6 +89,16 @@ export const SelectStep = ({
     onSearchChange({ phrase: search.phrase });
   };
 
+  const copying = new Set(selection.copyLanguages);
+  const allLanguages = sourceData.languages.every((l) => copying.has(l.codename));
+  // Keeps the source's language order, so the default language comes first.
+  const setCopyLanguages = (codenames: readonly string[]) =>
+    onChange({ ...selection, copyLanguages: sourceData.languages.map((l) => l.codename).filter((c) => codenames.includes(c)) });
+  const toggleLanguage = (codename: string) =>
+    setCopyLanguages(
+      copying.has(codename) ? selection.copyLanguages.filter((c) => c !== codename) : [...selection.copyLanguages, codename],
+    );
+
   const typeName = (typeId: string) => sourceData.typesById.get(typeId)?.name ?? "";
   const results = search.results;
 
@@ -95,7 +108,7 @@ export const SelectStep = ({
 
       <div className="options">
         <label>
-          Language
+          Search in
           <select value={selection.languageCodename} onChange={(e) => changeLanguage(e.target.value)}>
             {sourceData.languages.map((l) => (
               <option key={l.id} value={l.codename}>
@@ -126,8 +139,34 @@ export const SelectStep = ({
         </label>
       </div>
 
+      {sourceData.languages.length > 1 && (
+        <fieldset className="copy-languages">
+          <legend>Languages to copy</legend>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={allLanguages}
+              onChange={(e) => setCopyLanguages(e.target.checked ? sourceData.languages.map((l) => l.codename) : [])}
+            />
+            All languages
+          </label>
+          {sourceData.languages.map((l) => (
+            <label key={l.id} className="checkbox">
+              <input
+                type="checkbox"
+                checked={copying.has(l.codename)}
+                onChange={() => toggleLanguage(l.codename)}
+              />
+              {l.name} ({l.codename})
+            </label>
+          ))}
+        </fieldset>
+      )}
+      {selection.copyLanguages.length === 0 && <Message kind="warning">Choose at least one language to copy.</Message>}
+
       <p className="hint">
-        Without linked items, the copied items still point to the items they link to. Those links work once the linked
+        Each selected item is copied in every chosen language it has a variant in. Without linked items, the copied
+        items still point to the items they link to. Those links work once the linked
         items exist in the target too.
       </p>
 
@@ -207,7 +246,7 @@ export const SelectStep = ({
         <button
           type="button"
           className="btn continue-btn"
-          disabled={selection.pickedItems.length === 0}
+          disabled={selection.pickedItems.length === 0 || selection.copyLanguages.length === 0}
           onClick={onNext}
         >
           Preview

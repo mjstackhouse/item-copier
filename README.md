@@ -33,13 +33,14 @@ If both print a status code instead of a CORS error, you are clear. Then try a r
 ## How it works
 
 1. **Connect.** The user enters an environment ID and Management API key for the source and the target. Each is checked by loading the environment's name.
-2. **Choose items.** The user picks a language, then searches the source by item name or text content (an empty search lists every item in that language). Each search uses the Management API's filter endpoint, 50 items per page, with a **Load more** button for further pages, plus one bulk request for the items' names and types. Picked items stay in a "Selected items" list across searches. Other options: how many levels of linked items to include (0 to 3), and whether to skip references to deleted items.
+2. **Choose items.** The user picks the languages to copy (all of them by default, since copying an item usually means all of its translations) and a language to search in, then searches the source by item name or text content (an empty search lists every item in that language). Each search uses the Management API's filter endpoint, 50 items per page, with a **Load more** button for further pages, plus one bulk request for the items' names and types. Picked items stay in a "Selected items" list across searches. Other options: how many levels of linked items to include (0 to 3), and whether to skip references to deleted items.
 3. **Preview.** The app works out the full list and checks the target:
    - loads the selected items and each level of linked items with bulk requests (up to 100 items each), and follows linked-items elements, subpages elements, rich-text linked items, rich-text links to items, and the same inside rich-text components
-   - drops linked items that have no variant in the chosen language (and says so)
+   - works per language: each item is copied in every chosen language it has a variant in, and linked items are followed separately in each language, because translations can link to different items. The preview has one row per language variant, grouped by item.
+   - skips variants that don't exist in the source (and says so)
    - blocks the copy if:
-     - a selected item has no variant in that language, or no longer exists
-     - the target lacks the language, or any content type, collection, workflow or workflow step the items use (matched by codename, like the toolkit does)
+     - a selected item has a variant in none of the chosen languages, or no longer exists
+     - the target lacks one of the chosen languages, or any content type, collection, workflow or workflow step the items use (matched by codename, like the toolkit does)
      - an item already exists in the target with a different content type
      - a content type the items use has a taxonomy element (directly or through a snippet) whose taxonomy group no longer exists in the source. The toolkit looks the group up even when no terms are selected, and fails the whole copy.
    - shows for each item whether it is new, a new language variant, or will overwrite an existing one
@@ -66,7 +67,7 @@ If both print a status code instead of a CORS error, you are clear. Then try a r
 
 ## Known limitations and next steps
 
-- **One language per run.** The toolkit copies one language variant per item per run. Run it again for other languages.
+- **Several languages in one run.** The toolkit takes a list of item and language pairs, so all chosen languages are copied in one run, and each content item is created once. Preview and copy time grow with the number of languages. How non-localizable elements (shared by all of an item's variants) behave when several variants are copied in one run has not been tested yet.
 - **Content model.** The target must already have matching content types, taxonomies, collections and workflows. The preview checks the language, content types, collections, workflows and workflow steps, but not individual elements or taxonomy terms; those mismatches surface as errors during the copy. Use data-ops `sync` to align models.
 - **Workflow extras.** Tasks, comments, assignees and other workflow data are not copied (a toolkit limitation, also documented by data-ops).
 - **Deleted references.** References to deleted items are only detected when linked items are included (depth 1 or more). With depth 0, such a reference makes the copy fail unless "Skip references to deleted items" is on.

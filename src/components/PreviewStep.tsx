@@ -39,7 +39,7 @@ export const PreviewStep = ({
       target,
       sourceData,
       pickedIds: selection.pickedItems.map((i) => i.id),
-      languageCodename: selection.languageCodename,
+      languageCodenames: selection.copyLanguages,
       linkedItemsDepth: selection.linkedItemsDepth,
       skipMissingReferences: selection.skipMissingReferences,
       onProgress: (m) => !cancelled && setProgress(m),
@@ -96,24 +96,26 @@ export const PreviewStep = ({
   const schedulesCancelled = countEffect("schedule cancelled");
   const liveChanges = [
     removedFromLive > 0 &&
-      `${removedFromLive} item(s) will be unpublished and removed from the live site, because they are not published in the source.`,
-    replacesLive > 0 && `${replacesLive} item(s) will replace content that is live in the target, right away.`,
-    goesLive > 0 && `${goesLive} item(s) will be published and go live right away.`,
+      `${removedFromLive} variant(s) will be unpublished and removed from the live site, because they are not published in the source.`,
+    replacesLive > 0 && `${replacesLive} variant(s) will replace content that is live in the target, right away.`,
+    goesLive > 0 && `${goesLive} variant(s) will be published and go live right away.`,
     schedulesReplaced > 0 &&
-      `${schedulesReplaced} item(s) have scheduled publishing in the target that will be cancelled and replaced with the source's.`,
+      `${schedulesReplaced} variant(s) have scheduled publishing in the target that will be cancelled and replaced with the source's.`,
     schedulesCancelled > 0 &&
-      `${schedulesCancelled} item(s) have scheduled publishing in the target that will be cancelled.`,
+      `${schedulesCancelled} variant(s) have scheduled publishing in the target that will be cancelled.`,
   ].filter((text): text is string => !!text);
   const confirmParts = [
-    overwrites > 0 && `${overwrites} existing item(s) will be overwritten`,
-    removedFromLive > 0 && `${removedFromLive} item(s) will be unpublished`,
-    goesLive + replacesLive > 0 && `${goesLive + replacesLive} item(s) will be published right away`,
+    overwrites > 0 && `${overwrites} existing variant(s) will be overwritten`,
+    removedFromLive > 0 && `${removedFromLive} variant(s) will be unpublished`,
+    goesLive + replacesLive > 0 && `${goesLive + replacesLive} variant(s) will be published right away`,
   ].filter((text): text is string => !!text);
   // What needs confirming depends on the mode, so a change of mode asks for it again.
   const changeMode = (mode: PublishMode) => {
     setConfirmed(false);
     onPublishModeChange(mode);
   };
+  const itemCount = new Set(plan.rows.map((r) => r.id)).size;
+  const variantCount = (id: string) => plan.rows.filter((r) => r.id === id).length;
   const namesById = new Map(plan.rows.map((r) => [r.id, r.item.name]));
   const nameOf = (id: string | undefined) => (id ? (namesById.get(id) ?? id) : "");
 
@@ -121,9 +123,9 @@ export const PreviewStep = ({
     <section>
       <h2>Preview</h2>
       <p>
-        <strong>{plan.rows.length}</strong> item(s) will be copied from <strong>{source.environmentName}</strong> to{" "}
-        <strong>{target.environmentName}</strong> in <strong>{selection.languageCodename}</strong>. Assets they use are
-        copied too.
+        <strong>{itemCount}</strong> item(s) in <strong>{plan.rows.length}</strong> language variant(s) will be copied
+        from <strong>{source.environmentName}</strong> to <strong>{target.environmentName}</strong> (
+        {selection.copyLanguages.join(", ")}). Assets they use are copied too.
       </p>
 
       {plan.blockers.map((b) => (
@@ -199,19 +201,26 @@ export const PreviewStep = ({
             <tr>
               <th>Item</th>
               <th>Type</th>
+              <th>Language</th>
               <th>Why</th>
               <th>In target</th>
               <th>After copy</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map(({ row, prediction }) => (
-              <tr key={row.id}>
-                <td>
-                  {row.item.name}
-                  <div className="muted">{row.item.codename}</div>
-                </td>
-                <td>{row.typeCodename}</td>
+            {rows.map(({ row, prediction }, index) => (
+              <tr key={`${row.id}-${row.languageCodename}`}>
+                {/* An item's variants are next to each other; its name and type span them. */}
+                {rows[index - 1]?.row.id !== row.id && (
+                  <>
+                    <td rowSpan={variantCount(row.id)}>
+                      {row.item.name}
+                      <div className="muted">{row.item.codename}</div>
+                    </td>
+                    <td rowSpan={variantCount(row.id)}>{row.typeCodename}</td>
+                  </>
+                )}
+                <td>{row.languageCodename}</td>
                 <td>{row.depth === 0 ? "Selected" : `Linked from ${nameOf(row.linkedFrom)}`}</td>
                 <td>
                   <span className={`badge ${row.targetStatus === "overwrites existing" ? "badge-warn" : ""}`}>
@@ -253,7 +262,7 @@ export const PreviewStep = ({
           disabled={plan.blockers.length > 0 || (confirmParts.length > 0 && !confirmed)}
           onClick={() => onConfirm(plan)}
         >
-          Copy {plan.rows.length} item(s)
+          Copy {plan.rows.length} variant(s)
         </button>
       </div>
     </section>

@@ -18,7 +18,13 @@ const steps: readonly { readonly id: Step; readonly label: string }[] = [
   { id: "copy", label: "Copy" },
 ];
 
-const emptySelection: Selection = { languageCodename: "", pickedItems: [], linkedItemsDepth: 1, skipMissingReferences: false };
+const emptySelection: Selection = {
+  languageCodename: "",
+  copyLanguages: [],
+  pickedItems: [],
+  linkedItemsDepth: 1,
+  skipMissingReferences: false,
+};
 
 export const App = () => {
   const [step, setStep] = useState<Step>("connect");
@@ -45,7 +51,12 @@ export const App = () => {
         if (cancelled) return;
         setSourceData(data);
         const defaultLanguage = data.languages.find((l) => l.isDefault) ?? data.languages[0];
-        setSelection({ ...emptySelection, languageCodename: defaultLanguage?.codename ?? "" });
+        // Copies every language by default: copying an item usually means all of its translations.
+        setSelection({
+          ...emptySelection,
+          languageCodename: defaultLanguage?.codename ?? "",
+          copyLanguages: data.languages.map((l) => l.codename),
+        });
       })
       .catch((e: unknown) => {
         console.error(e);

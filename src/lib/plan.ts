@@ -41,41 +41,48 @@ export const buildPlan = async (params: {
   readonly target: Connection;
   readonly sourceData: SourceData;
   readonly pickedIds: readonly string[];
-  readonly languageCodename: string;
+  /** The languages to copy; each item is copied in those of them it has a variant in. */
+  readonly languageCodenames: readonly string[];
   readonly linkedItemsDepth: number;
   readonly skipMissingReferences: boolean;
   readonly onProgress: (message: string) => void;
 }): Promise<Plan> => {
-  const { source, target, sourceData, languageCodename } = params;
+  const { source, target, sourceData, languageCodenames } = params;
   const blockers: string[] = [];
   const warnings: string[] = [];
 
   const linked = await expandWithLinkedItems({
     client: source.client,
     pickedIds: params.pickedIds,
-    languageCodename,
+    languageCodenames,
     maxDepth: params.linkedItemsDepth,
     elementTypes: sourceData.elementTypes,
     onProgress: params.onProgress,
   });
 
   const pickedSet = new Set(params.pickedIds);
-  const pickedWithoutVariant = linked.withoutVariant.filter((i) => pickedSet.has(i.id));
-  const linkedWithoutVariant = linked.withoutVariant.filter((i) => !pickedSet.has(i.id));
+  const copiedIds = new Set(linked.items.map((p) => p.id));
   const pickedDeleted = linked.deletedIds.filter((id) => pickedSet.has(id));
   const deletedReferences = linked.deletedIds.filter((id) => !pickedSet.has(id));
+  const pickedInNoLanguage = unique(
+    linked.withoutVariant.filter((w) => w.picked && !copiedIds.has(w.item.id)).map((w) => w.item.name),
+  );
+  // Variants that are skipped because the item has no variant in that language.
+  const skippedVariants = linked.withoutVariant.filter((w) => copiedIds.has(w.item.id) || !w.picked);
 
   if (pickedDeleted.length) {
     blockers.push(`${pickedDeleted.length} selected item(s) no longer exist in the source. Go back and remove them.`);
   }
-  if (pickedWithoutVariant.length) {
+  if (pickedInNoLanguage.length) {
     blockers.push(
-      `These items have no "${languageCodename}" variant in the source: ${pickedWithoutVariant.map((i) => i.name).join(", ")}. Remove them or pick another language.`,
+      `These selected items have a variant in none of the chosen languages: ${pickedInNoLanguage.join(", ")}. Remove them or choose other languages.`,
     );
   }
-  if (linkedWithoutVariant.length) {
+  if (skippedVariants.length) {
     warnings.push(
-      `${linkedWithoutVariant.length} linked item(s) have no "${languageCodename}" variant and will not be copied: ${linkedWithoutVariant.map((i) => i.name).join(", ")}.`,
+      `${skippedVariants.length} language variant(s) don't exist in the source and are skipped: ${listWithLimit(
+        skippedVariants.map((w) => `${w.item.name} (${w.languageCodename})`),
+      )}.`,
     );
   }
 
@@ -94,16 +101,16 @@ export const buildPlan = async (params: {
     target.client.listCollections().toPromise(),
   ]);
 
-  const targetLanguage = targetLanguages.data.items.find((l) => l.codename === languageCodename);
-  if (!targetLanguage) {
-    blockers.push(`The target has no language with the codename "${languageCodename}".`);
-  } else if (!targetLanguage.isActive) {
-    blockers.push(`The language "${languageCodename}" is not active in the target.`);
+  for (const languageCodename of languageCodenames) {
+    const targetLanguage = targetLanguages.data.items.find((l) => l.codename === languageCodename);
+    if (!targetLanguage) {
+      blockers.push(`The target has no language with the codename "${languageCodename}".`);
+    } else if (!targetLanguage.isActive) {
+      blockers.push(`The language "${languageCodename}" is not active in the target.`);
+    }
   }
 
-  // Picked items without a variant are already blockers; leave them out of the table.
-  const withoutVariantIds = new Set(linked.withoutVariant.map((i) => i.id));
-  const known = linked.items.filter((p) => !withoutVariantIds.has(p.id));
+  const known = linked.items;
 
   const targetTypeCodenames = new Map(targetTypes.data.items.map((t) => [t.id, t.codename]));
   const targetTypeCodenameSet = new Set(targetTypeCodenames.values());
@@ -128,9 +135,13 @@ export const buildPlan = async (params: {
 
   const sourceFirstSteps = firstSteps(sourceData.workflowSteps);
 
-  params.onProgress(`Checking publishing state and which of the ${known.length} items already exist in the target`);
+  params.onProgress(
+    `Checking publishing state and which of the ${known.length} language variants already exist in the target`,
+  );
 
+  const targetItemTypes = new Map<string, Promise<string | undefined | null>>();
   const rows = await mapWithLimit(known, 5, async (planned): Promise<PlanRow> => {
+    const { languageCodename } = planned;
     const typeCodename = sourceData.typesById.get(planned.item.typeId)?.codename ?? "";
     const sourceStep = planned.state && sourceData.workflowSteps.get(planned.state.stepId);
     const [sourceState, targetState] = await Promise.all([
@@ -143,7 +154,7 @@ export const buildPlan = async (params: {
             latest: planned.state,
           })
         : undefined,
-      getTargetState(target, targetSteps, planned.item.codename, languageCodename),
+      getTargetState(target, targetSteps, targetItemTypes, planned.item.codename, languageCodename),
     ]);
     return {
       ...planned,
@@ -156,31 +167,59 @@ export const buildPlan = async (params: {
     };
   });
 
-  const typeMismatches = rows.filter((r) => r.targetTypeCodename && r.targetTypeCodename !== r.typeCodename);
+  const typeMismatches = unique(
+    rows
+      .filter((r) => r.targetTypeCodename && r.targetTypeCodename !== r.typeCodename)
+      .map((r) => `${r.item.name} (${r.typeCodename} in the source, ${r.targetTypeCodename} in the target)`),
+  );
   if (typeMismatches.length) {
     blockers.push(
-      `These items already exist in the target with a different content type, which the copy can't change: ${typeMismatches
-        .map((r) => `${r.item.name} (${r.typeCodename} in the source, ${r.targetTypeCodename} in the target)`)
-        .join(", ")}. Remove them from the copy, or delete or rename the target items first.`,
+      `These items already exist in the target with a different content type, which the copy can't change: ${typeMismatches.join(", ")}. Remove them from the copy, or delete or rename the target items first.`,
     );
   }
 
-  return { rows: rows.sort((a, b) => a.depth - b.depth || a.item.name.localeCompare(b.item.name)), blockers, warnings };
+  // Group each item's variants together, items in the order they were found, languages in the chosen order.
+  const minDepth = new Map<string, number>();
+  for (const r of rows) minDepth.set(r.id, Math.min(minDepth.get(r.id) ?? r.depth, r.depth));
+  const languageOrder = (codename: string) => languageCodenames.indexOf(codename);
+  rows.sort(
+    (a, b) =>
+      (minDepth.get(a.id) ?? 0) - (minDepth.get(b.id) ?? 0) ||
+      a.item.name.localeCompare(b.item.name) ||
+      a.id.localeCompare(b.id) ||
+      languageOrder(a.languageCodename) - languageOrder(b.languageCodename),
+  );
+
+  return { rows, blockers, warnings };
 };
 
+/**
+ * `itemTypes` caches the target item lookup per codename (null: not in the target), so an item
+ * copied in several languages is looked up once.
+ */
 const getTargetState = async (
   target: Connection,
   steps: WorkflowSteps,
+  itemTypes: Map<string, Promise<string | undefined | null>>,
   codename: string,
   languageCodename: string,
 ): Promise<{ readonly status: TargetStatus; readonly typeId?: string; readonly publishing?: PublishingState }> => {
-  let typeId: string | undefined;
-  try {
-    typeId = (await target.client.viewContentItem().byItemCodename(codename).toPromise()).data.type.id;
-  } catch (error) {
-    if (isNotFound(error)) return { status: "new item" };
-    throw error;
+  if (!itemTypes.has(codename)) {
+    itemTypes.set(
+      codename,
+      target.client
+        .viewContentItem()
+        .byItemCodename(codename)
+        .toPromise()
+        .then((r) => r.data.type.id)
+        .catch((error: unknown) => {
+          if (isNotFound(error)) return null;
+          throw error;
+        }),
+    );
   }
+  const typeId = await itemTypes.get(codename);
+  if (typeId === null) return { status: "new item" };
 
   try {
     const variant = await target.client
@@ -208,7 +247,10 @@ const getTargetState = async (
 
 const unique = (values: readonly string[]) => [...new Set(values)];
 
-const namesOf = (items: readonly PlannedItem[]) => items.map((p) => p.item.name).join(", ");
+const namesOf = (items: readonly PlannedItem[]) => unique(items.map((p) => p.item.name)).join(", ");
+
+const listWithLimit = (values: readonly string[], limit = 10) =>
+  values.length > limit ? `${values.slice(0, limit).join(", ")} and ${values.length - limit} more` : values.join(", ");
 
 /**
  * The toolkit looks up the taxonomy group of every taxonomy element while reading items, even when

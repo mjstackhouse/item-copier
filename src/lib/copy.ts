@@ -15,8 +15,8 @@ export type CopySummary = {
   readonly assetsUploaded: number;
   readonly assetsUpdated: number;
   /**
-   * Codenames of items the toolkit could not read from the source. It skips those without
-   * reporting an error, so they are found by comparing what was read with what was requested.
+   * Language variants (as "codename (language)") the toolkit could not read from the source. It skips
+   * those without reporting an error, so they are found by comparing what was read with what was requested.
    */
   readonly itemsNotRead: readonly string[];
   readonly errors: readonly string[];
@@ -61,8 +61,8 @@ const requestLogTypes = new Set<LogMessage["type"]>([
 export const copyItems = async (params: {
   readonly source: Connection;
   readonly target: Connection;
-  readonly itemCodenames: readonly string[];
-  readonly languageCodename: string;
+  /** The language variants to copy; the toolkit copies all of them in one run. */
+  readonly variants: readonly { readonly itemCodename: string; readonly languageCodename: string }[];
   readonly skipMissingReferences: boolean;
   readonly publishMode: PublishMode;
   /** The source environment's workflow steps, needed to turn versions into drafts. */
@@ -119,12 +119,15 @@ export const copyItems = async (params: {
       apiKey: params.source.apiKey,
       logger,
       skipMissingReferences: params.skipMissingReferences,
-      exportItems: params.itemCodenames.map((itemCodename) => ({ itemCodename, languageCodename: params.languageCodename })),
+      exportItems: params.variants.map((v) => ({ itemCodename: v.itemCodename, languageCodename: v.languageCodename })),
     });
     if (params.signal.aborted) return { state: "cancelled" };
 
-    const readCodenames = new Set(migrationData.items.map((i) => i.system.codename));
-    const itemsNotRead = params.itemCodenames.filter((c) => !readCodenames.has(c));
+    const key = (itemCodename: string, languageCodename: string) => `${itemCodename} (${languageCodename})`;
+    const read = new Set(migrationData.items.map((i) => key(i.system.codename, i.system.language.codename)));
+    const itemsNotRead = params.variants
+      .map((v) => key(v.itemCodename, v.languageCodename))
+      .filter((k) => !read.has(k));
 
     phase = "import";
     const importResult = await importAsync({

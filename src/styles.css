@@ -255,6 +255,23 @@ input[type="radio"] {
   cursor: pointer;
 }
 
+.copy-languages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 1rem 0 0;
+  padding: 0;
+  border: none;
+}
+
+.copy-languages legend {
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
 /* Buttons: pill-shaped and uppercase, as in the other tools */
 
 .btn {

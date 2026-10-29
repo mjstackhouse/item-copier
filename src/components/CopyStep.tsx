@@ -34,8 +34,7 @@ export const CopyStep = ({ source, target, selection, plan, publishMode, sourceW
     copyItems({
       source,
       target,
-      itemCodenames: plan.rows.map((r) => r.item.codename),
-      languageCodename: selection.languageCodename,
+      variants: plan.rows.map((r) => ({ itemCodename: r.item.codename, languageCodename: r.languageCodename })),
       skipMissingReferences: selection.skipMissingReferences,
       publishMode,
       sourceWorkflowSteps,
@@ -95,7 +94,7 @@ export const CopyStep = ({ source, target, selection, plan, publishMode, sourceW
           </p>
           {summary.itemsNotRead.length > 0 && (
             <p>
-              {summary.itemsNotRead.length} item(s) could not be read from the source and were not copied:{" "}
+              {summary.itemsNotRead.length} language variant(s) could not be read from the source and were not copied:{" "}
               {summary.itemsNotRead.join(", ")}. Check them in the source, for example for a workflow step, collection
               or element value the copy can't handle.
             </p>
