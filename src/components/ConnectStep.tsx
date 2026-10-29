@@ -17,9 +17,6 @@ export const ConnectStep = ({ source, target, onSourceChange, onTargetChange, on
   return (
     <section>
       <h2>Connect environments</h2>
-      <p className="hint">
-        Use Management API keys. Keys stay in this browser tab only and are cleared when you close or reload it.
-      </p>
       <div className="two-columns">
         <EnvironmentForm label="Copy from (source)" connection={source} onChange={onSourceChange} />
         <EnvironmentForm label="Copy to (target)" connection={target} onChange={onTargetChange} />

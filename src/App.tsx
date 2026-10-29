@@ -60,9 +60,12 @@ export const App = () => {
     <main>
       <p id="app-title">Item Copier</p>
       <header>
-        <p className="intro">
-          Copy content items, the items they link to and the assets they use from one Kontent.ai environment to another.
-        </p>
+        {step === "connect" && (
+          <p className="intro">
+            Copy content items, the items they link to and the assets they use from one Kontent.ai environment to
+            another. Your API keys stay in this browser tab and are never stored.
+          </p>
+        )}
         <ol className="stepper">
           {steps.map((s, index) => (
             <li
