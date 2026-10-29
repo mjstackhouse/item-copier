@@ -37,11 +37,15 @@ If both print a status code instead of a CORS error, you are clear. Then try a r
 3. **Preview.** The app works out the full list and checks the target:
    - loads the selected items and each level of linked items with bulk requests (up to 100 items each), and follows linked-items elements, subpages elements, rich-text linked items, rich-text links to items, and the same inside rich-text components
    - drops linked items that have no variant in the chosen language (and says so)
-   - blocks the copy if a selected item has no variant in that language, if the target lacks the language, or if the target lacks any content type the items use
+   - blocks the copy if:
+     - a selected item has no variant in that language, or no longer exists
+     - the target lacks the language, or any content type, collection, workflow or workflow step the items use (matched by codename, like the toolkit does)
+     - an item already exists in the target with a different content type
+     - a content type the items use has a taxonomy element (directly or through a snippet) whose taxonomy group no longer exists in the source. The toolkit looks the group up even when no terms are selected, and fails the whole copy.
    - shows for each item whether it is new, a new language variant, or will overwrite an existing one
    - shows the publishing state each item will have after the copy. The toolkit makes the target match the source: items published in the source are published in the target right away, items that are published in the target but not in the source are unpublished, and schedules in the target are replaced with the source's. The preview flags these per item ("goes live", "replaces live content", "removed from live site", "schedule replaced") and summarizes them above the table. This takes one extra request per item for each side whose latest version is not the published one.
    - requires a confirmation when anything will be overwritten, published or unpublished
-4. **Copy.** Runs the toolkit's `exportAsync` and then `importAsync` (the two halves of `migrateAsync`) with a custom logger that streams every toolkit log line into the page, then shows a summary of items, variants and assets copied or failed.
+4. **Copy.** Runs the toolkit's `exportAsync` and then `importAsync` (the two halves of `migrateAsync`) with a custom logger that streams every toolkit log line into the page, then shows a summary of items, variants and assets copied or failed. The toolkit skips items it cannot read from the source without reporting an error, so the app compares what was read with what was requested and lists any missing items.
    - **Cancel copy** stops at the next safe point. During the export (reading the source) it stops right away and nothing is written to the target. During the import it lets the item being copied finish and stops before the next one, so no item is left half-copied. The toolkit has no built-in way to stop; the app's logger throws when the toolkit is about to send the next item's first request.
 
 ## Where things are
@@ -59,7 +63,7 @@ If both print a status code instead of a CORS error, you are clear. Then try a r
 ## Known limitations and next steps
 
 - **One language per run.** The toolkit copies one language variant per item per run. Run it again for other languages.
-- **Content model.** The target must already have matching content types, taxonomies, collections and workflows. The preview checks content types and the language; other mismatches surface as errors during the copy. Use data-ops `sync` to align models.
+- **Content model.** The target must already have matching content types, taxonomies, collections and workflows. The preview checks the language, content types, collections, workflows and workflow steps, but not individual elements or taxonomy terms; those mismatches surface as errors during the copy. Use data-ops `sync` to align models.
 - **Workflow extras.** Tasks, comments, assignees and other workflow data are not copied (a toolkit limitation, also documented by data-ops).
 - **Deleted references.** References to deleted items are only detected when linked items are included (depth 1 or more). With depth 0, such a reference makes the copy fail unless "Skip references to deleted items" is on.
 - **Keep the tab open.** The copy runs in the browser, so closing the tab stops it (possibly in the middle of an item; use **Cancel copy** instead). Re-running is safe: the toolkit matches existing items and assets by codename instead of creating duplicates.

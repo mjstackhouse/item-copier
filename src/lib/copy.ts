@@ -13,6 +13,11 @@ export type CopySummary = {
   readonly variantsCancelled: number;
   readonly assetsUploaded: number;
   readonly assetsUpdated: number;
+  /**
+   * Codenames of items the toolkit could not read from the source. It skips those without
+   * reporting an error, so they are found by comparing what was read with what was requested.
+   */
+  readonly itemsNotRead: readonly string[];
   readonly errors: readonly string[];
 };
 
@@ -114,6 +119,9 @@ export const copyItems = async (params: {
     });
     if (params.signal.aborted) return { state: "cancelled" };
 
+    const readCodenames = new Set(migrationData.items.map((i) => i.system.codename));
+    const itemsNotRead = params.itemCodenames.filter((c) => !readCodenames.has(c));
+
     phase = "import";
     const importResult = await importAsync({
       environmentId: params.target.environmentId,
@@ -122,7 +130,7 @@ export const copyItems = async (params: {
       data: migrationData,
     });
 
-    const summary = summarize(importResult);
+    const summary = summarize(importResult, itemsNotRead);
     return summary.variantsCancelled ? { state: "cancelled", summary } : { state: "finished", summary };
   } catch (error) {
     // Thrown before any import step ran (the export, or reading the target before writing).
@@ -132,7 +140,7 @@ export const copyItems = async (params: {
   }
 };
 
-const summarize = (importResult: Awaited<ReturnType<typeof importAsync>>): CopySummary => {
+const summarize = (importResult: Awaited<ReturnType<typeof importAsync>>, itemsNotRead: readonly string[]): CopySummary => {
   const { contentItems, languageVariants, uploadedAssets, editedAssets } = importResult;
   // Each result is "valid", "error" or "404"; anything other than "valid" counts as failed,
   // unless it was skipped because of cancelling.
@@ -148,6 +156,7 @@ const summarize = (importResult: Awaited<ReturnType<typeof importAsync>>): CopyS
     variantsCancelled: languageVariants.filter(isCancelled).length,
     assetsUploaded: uploadedAssets.filter((r) => r.state === "valid").length,
     assetsUpdated: editedAssets.filter((r) => r.state === "valid").length,
+    itemsNotRead,
     errors: failed.map((r) => describeError(r)),
   };
 };

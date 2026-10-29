@@ -77,13 +77,20 @@ export const CopyStep = ({ source, target, selection, plan, onStartOver }: Props
       )}
 
       {summary && (
-        <div className={`message ${summary.errors.length ? "warning" : "ok"}`}>
+        <div className={`message ${summary.errors.length || summary.itemsNotRead.length ? "warning" : "ok"}`}>
           <p>
             Items: {summary.itemsOk} copied{summary.itemsFailed ? `, ${summary.itemsFailed} failed` : ""}. Language
             variants: {summary.variantsOk} copied
             {summary.variantsFailed ? `, ${summary.variantsFailed} failed` : ""}. Assets: {summary.assetsUploaded}{" "}
             uploaded, {summary.assetsUpdated} updated.
           </p>
+          {summary.itemsNotRead.length > 0 && (
+            <p>
+              {summary.itemsNotRead.length} item(s) could not be read from the source and were not copied:{" "}
+              {summary.itemsNotRead.join(", ")}. Check them in the source, for example for a workflow step, collection
+              or element value the copy can't handle.
+            </p>
+          )}
           {summary.errors.length > 0 && (
             <ul>
               {summary.errors.map((e) => (

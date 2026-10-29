@@ -1,4 +1,4 @@
-import { ManagementClient } from "@kontent-ai/management-sdk";
+import { type ContentTypeElements, ManagementClient } from "@kontent-ai/management-sdk";
 
 import { loadWorkflowSteps, type VariantState, type WorkflowSteps } from "./publishing";
 
@@ -22,6 +22,7 @@ export type Item = {
   readonly codename: string;
   readonly name: string;
   readonly typeId: string;
+  readonly collectionId: string;
 };
 
 export type ContentTypeInfo = {
@@ -30,9 +31,20 @@ export type ContentTypeInfo = {
   readonly name: string;
 };
 
+/** A taxonomy element of a content type (directly or through a snippet) and the group it uses. */
+export type TaxonomyElementInfo = {
+  readonly name: string;
+  readonly taxonomyGroupId: string;
+};
+
 export type SourceData = {
   readonly languages: readonly Language[];
   readonly workflowSteps: WorkflowSteps;
+  /** Collection id -> codename. */
+  readonly collectionCodenames: ReadonlyMap<string, string>;
+  readonly taxonomyGroupIds: ReadonlySet<string>;
+  /** Content type id -> its taxonomy elements, including those from snippets. */
+  readonly taxonomyElementsByType: ReadonlyMap<string, readonly TaxonomyElementInfo[]>;
   readonly typesById: ReadonlyMap<string, ContentTypeInfo>;
   /** Element id -> element type ("modular_content", "rich_text", ...), across all types and snippets. */
   readonly elementTypes: ReadonlyMap<string, string>;
@@ -57,12 +69,20 @@ export const connect = async (environmentId: string, apiKey: string): Promise<Co
  * Items themselves are loaded on demand: see `searchItems` and `getItemsWithVariants`.
  */
 export const loadSourceData = async (client: ManagementClient): Promise<SourceData> => {
-  const [languages, types, snippets, workflowSteps] = await Promise.all([
+  const [languages, types, snippets, workflowSteps, collections, taxonomies] = await Promise.all([
     client.listLanguages().toAllPromise(),
     client.listContentTypes().toAllPromise(),
     client.listContentTypeSnippets().toAllPromise(),
     loadWorkflowSteps(client),
+    client.listCollections().toPromise(),
+    client.listTaxonomies().toAllPromise(),
   ]);
+
+  const taxonomyElementsOf = (elements: readonly ContentTypeElements.ContentTypeElementModel[]): TaxonomyElementInfo[] =>
+    elements.flatMap((e) =>
+      e.type === "taxonomy" && e.taxonomy_group.id ? [{ name: e.name ?? e.codename ?? "", taxonomyGroupId: e.taxonomy_group.id }] : [],
+    );
+  const snippetsById = new Map(snippets.data.items.map((s) => [s.id, s]));
 
   const elementTypes = new Map<string, string>();
   for (const element of [...types.data.items, ...snippets.data.items].flatMap((t) => t.elements)) {
@@ -76,6 +96,20 @@ export const loadSourceData = async (client: ManagementClient): Promise<SourceDa
       .filter((l) => l.isActive)
       .map((l) => ({ id: l.id, codename: l.codename, name: l.name, isDefault: l.isDefault ?? false })),
     workflowSteps,
+    collectionCodenames: new Map(collections.data.collections.map((c) => [c.id, c.codename])),
+    taxonomyGroupIds: new Set(taxonomies.data.items.map((t) => t.id)),
+    taxonomyElementsByType: new Map(
+      types.data.items.map((t) => [
+        t.id,
+        [
+          ...taxonomyElementsOf(t.elements),
+          ...t.elements.flatMap((e) => {
+            const snippet = e.type === "snippet" && e.snippet.id ? snippetsById.get(e.snippet.id) : undefined;
+            return snippet ? taxonomyElementsOf(snippet.elements) : [];
+          }),
+        ],
+      ]),
+    ),
     typesById: new Map(types.data.items.map((t) => [t.id, { id: t.id, codename: t.codename, name: t.name }])),
     elementTypes,
   };
@@ -102,11 +136,18 @@ export type SearchResult = {
   readonly continuationToken: string | null;
 };
 
-const toItem = (contract: { id: string; codename: string; name: string; type: { id?: string } }): Item => ({
+const toItem = (contract: {
+  id: string;
+  codename: string;
+  name: string;
+  type: { id?: string };
+  collection: { id?: string };
+}): Item => ({
   id: contract.id,
   codename: contract.codename,
   name: contract.name,
   typeId: contract.type.id ?? "",
+  collectionId: contract.collection.id ?? "",
 });
 
 /**
