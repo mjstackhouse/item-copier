@@ -299,6 +299,18 @@ td {
   color: var(--warn-text);
 }
 
+.badge-danger {
+  background: var(--error-bg);
+  color: var(--error-text);
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
 .confirm {
   margin-top: 16px;
 }

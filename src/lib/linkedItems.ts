@@ -1,6 +1,7 @@
 import type { ManagementClient } from "@kontent-ai/management-sdk";
 
 import { getItemsWithVariants, type Item, type VariantElement } from "./kontent";
+import type { VariantState } from "./publishing";
 
 export type PlannedItem = {
   readonly id: string;
@@ -9,6 +10,8 @@ export type PlannedItem = {
   readonly depth: number;
   /** Id of the item that first linked to this one (undefined for picked items). */
   readonly linkedFrom?: string;
+  /** Workflow step and schedule of the source variant; undefined when there is no variant in the language. */
+  readonly state?: VariantState;
 };
 
 export type LinkedItemsResult = {
@@ -106,7 +109,7 @@ export const expandWithLinkedItems = async (params: {
         continue;
       }
 
-      planned.push({ id, item: entry.item, depth, linkedFrom });
+      planned.push({ id, item: entry.item, depth, linkedFrom, state: entry.state });
       if (depth < params.maxDepth) {
         for (const refId of findReferencedItemIds(entry.elements, params.elementTypes)) {
           if (!seen.has(refId)) {

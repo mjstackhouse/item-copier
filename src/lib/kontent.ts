@@ -1,5 +1,7 @@
 import { ManagementClient } from "@kontent-ai/management-sdk";
 
+import { loadWorkflowSteps, type VariantState, type WorkflowSteps } from "./publishing";
+
 export type Connection = {
   readonly environmentId: string;
   readonly apiKey: string;
@@ -30,6 +32,7 @@ export type ContentTypeInfo = {
 
 export type SourceData = {
   readonly languages: readonly Language[];
+  readonly workflowSteps: WorkflowSteps;
   readonly typesById: ReadonlyMap<string, ContentTypeInfo>;
   /** Element id -> element type ("modular_content", "rich_text", ...), across all types and snippets. */
   readonly elementTypes: ReadonlyMap<string, string>;
@@ -54,10 +57,11 @@ export const connect = async (environmentId: string, apiKey: string): Promise<Co
  * Items themselves are loaded on demand: see `searchItems` and `getItemsWithVariants`.
  */
 export const loadSourceData = async (client: ManagementClient): Promise<SourceData> => {
-  const [languages, types, snippets] = await Promise.all([
+  const [languages, types, snippets, workflowSteps] = await Promise.all([
     client.listLanguages().toAllPromise(),
     client.listContentTypes().toAllPromise(),
     client.listContentTypeSnippets().toAllPromise(),
+    loadWorkflowSteps(client),
   ]);
 
   const elementTypes = new Map<string, string>();
@@ -71,6 +75,7 @@ export const loadSourceData = async (client: ManagementClient): Promise<SourceDa
     languages: languages.data.items
       .filter((l) => l.isActive)
       .map((l) => ({ id: l.id, codename: l.codename, name: l.name, isDefault: l.isDefault ?? false })),
+    workflowSteps,
     typesById: new Map(types.data.items.map((t) => [t.id, { id: t.id, codename: t.codename, name: t.name }])),
     elementTypes,
   };
@@ -87,6 +92,8 @@ export type ItemWithVariant = {
   readonly item: Item;
   /** Undefined when the item has no variant in the requested language. */
   readonly elements?: readonly VariantElement[];
+  /** Workflow step and schedule of the latest version; set whenever `elements` is. */
+  readonly state?: VariantState;
 };
 
 export type SearchResult = {
@@ -156,7 +163,15 @@ export const getItemsWithVariants = async (
       .toAllPromise();
 
     for (const { item, variant } of response.data.items) {
-      result.set(item.id, { item: toItem(item), elements: variant?.elements });
+      result.set(item.id, {
+        item: toItem(item),
+        elements: variant?.elements,
+        state: variant && {
+          stepId: variant.workflow.step_identifier.id ?? "",
+          publishTime: variant.schedule?.publish_time ?? null,
+          unpublishTime: variant.schedule?.unpublish_time ?? null,
+        },
+      });
     }
   }
 

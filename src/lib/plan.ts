@@ -1,11 +1,24 @@
 import { type Connection, isNotFound, mapWithLimit, type SourceData } from "./kontent";
 import { expandWithLinkedItems, type PlannedItem } from "./linkedItems";
+import {
+  describeOutcome,
+  getLiveEffects,
+  getPublishingState,
+  type LiveEffect,
+  loadWorkflowSteps,
+  type PublishingState,
+  type WorkflowSteps,
+} from "./publishing";
 
 export type TargetStatus = "new item" | "new language variant" | "overwrites existing";
 
 export type PlanRow = PlannedItem & {
   readonly typeCodename: string;
   readonly targetStatus: TargetStatus;
+  /** The state the item will be in, in the target, after the copy. */
+  readonly outcome: string;
+  /** How the copy changes what is live in the target for this item. */
+  readonly effects: readonly LiveEffect[];
 };
 
 export type Plan = {
@@ -72,9 +85,10 @@ export const buildPlan = async (params: {
 
   params.onProgress("Checking the target environment");
 
-  const [targetLanguages, targetTypes] = await Promise.all([
+  const [targetLanguages, targetTypes, targetSteps] = await Promise.all([
     target.client.listLanguages().toAllPromise(),
     target.client.listContentTypes().toAllPromise(),
+    loadWorkflowSteps(target.client),
   ]);
 
   const targetLanguage = targetLanguages.data.items.find((l) => l.codename === languageCodename);
@@ -102,29 +116,67 @@ export const buildPlan = async (params: {
     );
   }
 
-  params.onProgress(`Checking which of the ${known.length} items already exist in the target`);
+  params.onProgress(`Checking publishing state and which of the ${known.length} items already exist in the target`);
 
   const rows = await mapWithLimit(known, 5, async (planned): Promise<PlanRow> => {
     const typeCodename = sourceData.typesById.get(planned.item.typeId)?.codename ?? "";
-    return { ...planned, typeCodename, targetStatus: await getTargetStatus(target, planned.item.codename, languageCodename) };
+    const [sourceState, targetState] = await Promise.all([
+      planned.state
+        ? getPublishingState({
+            client: source.client,
+            steps: sourceData.workflowSteps,
+            item: { id: planned.id },
+            languageCodename,
+            latest: planned.state,
+          })
+        : undefined,
+      getTargetState(target, targetSteps, planned.item.codename, languageCodename),
+    ]);
+    return {
+      ...planned,
+      typeCodename,
+      targetStatus: targetState.status,
+      outcome: sourceState ? describeOutcome(sourceState) : "",
+      effects: sourceState ? getLiveEffects(sourceState, targetState.publishing) : [],
+    };
   });
 
   return { rows: rows.sort((a, b) => a.depth - b.depth || a.item.name.localeCompare(b.item.name)), blockers, warnings };
 };
 
-const getTargetStatus = async (target: Connection, codename: string, languageCodename: string): Promise<TargetStatus> => {
+const getTargetState = async (
+  target: Connection,
+  steps: WorkflowSteps,
+  codename: string,
+  languageCodename: string,
+): Promise<{ readonly status: TargetStatus; readonly publishing?: PublishingState }> => {
   try {
     await target.client.viewContentItem().byItemCodename(codename).toPromise();
   } catch (error) {
-    if (isNotFound(error)) return "new item";
+    if (isNotFound(error)) return { status: "new item" };
     throw error;
   }
 
   try {
-    await target.client.viewLanguageVariant().byItemCodename(codename).byLanguageCodename(languageCodename).toPromise();
-    return "overwrites existing";
+    const variant = await target.client
+      .viewLanguageVariant()
+      .byItemCodename(codename)
+      .byLanguageCodename(languageCodename)
+      .toPromise();
+    const publishing = await getPublishingState({
+      client: target.client,
+      steps,
+      item: { codename },
+      languageCodename,
+      latest: {
+        stepId: variant.data.workflow.stepIdentifier.id ?? "",
+        publishTime: variant.data.schedule?.publishTime ?? null,
+        unpublishTime: variant.data.schedule?.unpublishTime ?? null,
+      },
+    });
+    return { status: "overwrites existing", publishing };
   } catch (error) {
-    if (isNotFound(error)) return "new language variant";
+    if (isNotFound(error)) return { status: "new language variant" };
     throw error;
   }
 };

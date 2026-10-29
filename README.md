@@ -38,7 +38,9 @@ If both print a status code instead of a CORS error, you are clear. Then try a r
    - loads the selected items and each level of linked items with bulk requests (up to 100 items each), and follows linked-items elements, subpages elements, rich-text linked items, rich-text links to items, and the same inside rich-text components
    - drops linked items that have no variant in the chosen language (and says so)
    - blocks the copy if a selected item has no variant in that language, if the target lacks the language, or if the target lacks any content type the items use
-   - shows for each item whether it is new, a new language variant, or will overwrite an existing one, and requires a confirmation when anything will be overwritten
+   - shows for each item whether it is new, a new language variant, or will overwrite an existing one
+   - shows the publishing state each item will have after the copy. The toolkit makes the target match the source: items published in the source are published in the target right away, items that are published in the target but not in the source are unpublished, and schedules in the target are replaced with the source's. The preview flags these per item ("goes live", "replaces live content", "removed from live site", "schedule replaced") and summarizes them above the table. This takes one extra request per item for each side whose latest version is not the published one.
+   - requires a confirmation when anything will be overwritten, published or unpublished
 4. **Copy.** Runs the toolkit's `exportAsync` and then `importAsync` (the two halves of `migrateAsync`) with a custom logger that streams every toolkit log line into the page, then shows a summary of items, variants and assets copied or failed.
    - **Cancel copy** stops at the next safe point. During the export (reading the source) it stops right away and nothing is written to the target. During the import it lets the item being copied finish and stops before the next one, so no item is left half-copied. The toolkit has no built-in way to stop; the app's logger throws when the toolkit is about to send the next item's first request.
 
