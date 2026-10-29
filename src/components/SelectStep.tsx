@@ -115,29 +115,43 @@ export const SelectStep = ({
     <section>
       <h2>Choose items</h2>
 
-      <div className="options">
-        <label>
-          Search in
-          <select value={selection.languageCodename} onChange={(e) => changeLanguage(e.target.value)}>
-            {sourceData.languages.map((l) => (
-              <option key={l.id} value={l.codename}>
-                {l.name} ({l.codename})
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Include linked items
-          <select
-            value={selection.linkedItemsDepth}
-            onChange={(e) => onChange({ ...selection, linkedItemsDepth: Number(e.target.value) })}
-          >
-            <option value={0}>No, only the items I pick</option>
-            <option value={1}>Yes, 1 level deep</option>
-            <option value={2}>Yes, 2 levels deep</option>
-            <option value={3}>Yes, 3 levels deep</option>
-          </select>
-        </label>
+      <div className="card step-card">
+        <h3>Copy settings</h3>
+
+        {sourceData.languages.length > 1 && (
+          <div className="setting">
+            <LanguagePicker
+              languages={sourceData.languages}
+              copyAll={selection.copyAllLanguages}
+              chosen={selection.chosenLanguages}
+              onChange={({ copyAll, chosen }) =>
+                onChange({ ...selection, copyAllLanguages: copyAll, chosenLanguages: chosen })
+              }
+            />
+            <p className="hint">Each selected item is copied in every chosen language it has a variant in.</p>
+            {noLanguages && <Message kind="warning">Choose at least one language to copy.</Message>}
+          </div>
+        )}
+
+        <div className="setting">
+          <label>
+            Include linked items
+            <select
+              value={selection.linkedItemsDepth}
+              onChange={(e) => onChange({ ...selection, linkedItemsDepth: Number(e.target.value) })}
+            >
+              <option value={0}>No, only the items I pick</option>
+              <option value={1}>Yes, 1 level deep</option>
+              <option value={2}>Yes, 2 levels deep</option>
+              <option value={3}>Yes, 3 levels deep</option>
+            </select>
+          </label>
+          <p className="hint">
+            Without linked items, the copied items still point to the items they link to. Those links work once the
+            linked items exist in the target too.
+          </p>
+        </div>
+
         <label className="checkbox">
           <input
             type="checkbox"
@@ -148,89 +162,96 @@ export const SelectStep = ({
         </label>
       </div>
 
-      {sourceData.languages.length > 1 && (
-        <LanguagePicker
-          languages={sourceData.languages}
-          copyAll={selection.copyAllLanguages}
-          chosen={selection.chosenLanguages}
-          onChange={({ copyAll, chosen }) => onChange({ ...selection, copyAllLanguages: copyAll, chosenLanguages: chosen })}
-        />
-      )}
-      {noLanguages && <Message kind="warning">Choose at least one language to copy.</Message>}
+      <div className="card step-card">
+        <h3>Find items</h3>
 
-      <p className="hint">
-        Each selected item is copied in every chosen language it has a variant in. Without linked items, the copied
-        items still point to the items they link to. Those links work once the linked
-        items exist in the target too.
-      </p>
-
-      <form className="search-form" onSubmit={handleSearch}>
-        <input
-          type="search"
-          aria-label="Search items"
-          placeholder="Search by item name or text content"
-          value={phrase}
-          onChange={(e) => setPhrase(e.target.value)}
-        />
-        <button type="submit" className="btn continue-btn" disabled={!!status.loading}>
-          {status.loading === "search" && <span className="loading-span" aria-hidden="true" />}
-          {status.loading === "search" ? "Searching" : "Search"}
-        </button>
-      </form>
-      <p className="hint">Leave the search empty to list all items in this language.</p>
-      {status.error && <Message kind="error">{status.error}</Message>}
-
-      {results && (
-        <ul className="item-list" aria-label="Search results">
-          {results.items.map((item) => (
-            <li key={item.id}>
-              <label className="checkbox">
-                <input type="checkbox" checked={picked.has(item.id)} onChange={() => toggle(item)} />
-                <span className="item-name">{item.name}</span>
-                <span className="muted">{typeName(item.typeId)}</span>
-              </label>
-            </li>
-          ))}
-          {results.items.length === 0 && <li className="muted">No items match.</li>}
-          {results.continuationToken && (
-            <li className="load-more">
-              <button
-                type="button"
-                className="btn back-btn"
-                disabled={!!status.loading}
-                onClick={() => void runSearch(results.continuationToken)}
+        <div>
+          <form className="search-form" onSubmit={handleSearch}>
+            {/* Only affects searching: each item is copied in the languages chosen above. */}
+            {sourceData.languages.length > 1 && (
+              <select
+                className="search-language"
+                aria-label="Search in language"
+                title="Search in language"
+                value={selection.languageCodename}
+                onChange={(e) => changeLanguage(e.target.value)}
               >
-                {status.loading === "more" ? "Loading…" : "Load more"}
-              </button>
-            </li>
-          )}
-        </ul>
-      )}
+                {sourceData.languages.map((l) => (
+                  <option key={l.id} value={l.codename}>
+                    {l.name} ({l.codename})
+                  </option>
+                ))}
+              </select>
+            )}
+            <input
+              type="search"
+              aria-label="Search items"
+              placeholder="Search by item name or text content"
+              value={phrase}
+              onChange={(e) => setPhrase(e.target.value)}
+            />
+            <button type="submit" className="btn continue-btn" disabled={!!status.loading}>
+              {status.loading === "search" && <span className="loading-span" aria-hidden="true" />}
+              {status.loading === "search" ? "Searching" : "Search"}
+            </button>
+          </form>
+          <p className="hint">Searches in the selected language. Leave the search empty to list all items.</p>
+        </div>
+        {status.error && <Message kind="error">{status.error}</Message>}
 
-      {selection.pickedItems.length > 0 && (
-        <>
-          <h3 className="list-heading">Selected items</h3>
-          <ul className="item-list" aria-label="Selected items">
-            {selection.pickedItems.map((item) => (
-              <li key={item.id} className="selected-item">
-                <span>
-                  <span className="item-name">{item.name}</span>{" "}
+        {results && (
+          <ul className="item-list" aria-label="Search results">
+            {results.items.map((item) => (
+              <li key={item.id}>
+                <label className="checkbox">
+                  <input type="checkbox" checked={picked.has(item.id)} onChange={() => toggle(item)} />
+                  <span className="item-name">{item.name}</span>
                   <span className="muted">{typeName(item.typeId)}</span>
-                </span>
-                <button
-                  type="button"
-                  className="delete-btn"
-                  onClick={() => toggle(item)}
-                  aria-label={`Remove ${item.name}`}
-                  title="Remove"
-                >
-                  ×
-                </button>
+                </label>
               </li>
             ))}
+            {results.items.length === 0 && <li className="muted">No items match.</li>}
+            {results.continuationToken && (
+              <li className="load-more">
+                <button
+                  type="button"
+                  className="btn back-btn"
+                  disabled={!!status.loading}
+                  onClick={() => void runSearch(results.continuationToken)}
+                >
+                  {status.loading === "more" ? "Loading…" : "Load more"}
+                </button>
+              </li>
+            )}
           </ul>
-        </>
-      )}
+        )}
+
+        {selection.pickedItems.length > 0 && (
+          <div>
+            <h3 className="list-heading">Selected items</h3>
+            <ul className="item-list" aria-label="Selected items">
+              {selection.pickedItems.map((item) => (
+                <li key={item.id} className="selected-item">
+                  <span>
+                    <span className="item-name">{item.name}</span>{" "}
+                    <span className="muted">{typeName(item.typeId)}</span>
+                  </span>
+                  <button
+                    type="button"
+                    className="delete-btn"
+                    onClick={() => toggle(item)}
+                    aria-label={`Remove ${item.name}`}
+                    title="Remove"
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+      </div>
 
       <div className="actions">
         <button type="button" className="btn back-btn" onClick={onBack}>

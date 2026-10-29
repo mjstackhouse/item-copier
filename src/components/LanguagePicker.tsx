@@ -52,6 +52,8 @@ export const LanguagePicker = ({ languages, copyAll, chosen, onChange }: Props) 
           placeholder="Search languages…"
           noOptionsMessage={() => "No languages match"}
           closeMenuOnSelect={false}
+          // Switching back to "All languages" does what a "clear all" button would.
+          isClearable={false}
           classNamePrefix="select"
           styles={selectStyles}
         />
@@ -65,29 +67,30 @@ export const LanguagePicker = ({ languages, copyAll, chosen, onChange }: Props) 
 const selectStyles: StylesConfig<Option, true> = {
   control: (base, state) => ({
     ...base,
-    fontSize: "14px",
-    padding: "6px 10px",
+    fontSize: "13px",
+    minHeight: "40px",
+    padding: "4px 8px",
     border: `1px solid ${state.isFocused ? "var(--lighter-black)" : "transparent"}`,
     borderRadius: "8px",
     backgroundColor: state.isFocused ? "white" : "var(--color-gray-100)",
     boxShadow: "none",
     "&:hover": { borderColor: "var(--lighter-black)" },
   }),
-  valueContainer: (base) => ({ ...base, gap: "6px", padding: 0 }),
+  valueContainer: (base) => ({ ...base, gap: "4px", padding: 0 }),
   placeholder: (base) => ({ ...base, color: "var(--color-gray-500)" }),
   multiValue: (base) => ({
     ...base,
     alignItems: "center",
     margin: 0,
-    padding: "2px 4px 2px 10px",
+    padding: "0 2px 0 8px",
     border: "1px solid var(--color-gray-400)",
     borderRadius: "9999px",
     backgroundColor: "white",
   }),
-  multiValueLabel: (base) => ({ ...base, padding: 0, fontSize: "14px", color: "var(--lighter-black)" }),
+  multiValueLabel: (base) => ({ ...base, padding: "3px 0", fontSize: "13px", color: "var(--lighter-black)" }),
   multiValueRemove: (base) => ({
     ...base,
-    marginLeft: "4px",
+    marginLeft: "2px",
     borderRadius: "9999px",
     color: "var(--color-gray-400)",
     cursor: "pointer",
