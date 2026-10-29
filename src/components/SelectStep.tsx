@@ -210,7 +210,7 @@ export const SelectStep = ({
           disabled={selection.pickedItems.length === 0}
           onClick={onNext}
         >
-          Next: preview
+          Preview
         </button>
       </div>
     </section>

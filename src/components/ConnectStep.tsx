@@ -32,7 +32,7 @@ export const ConnectStep = ({ source, target, onSourceChange, onTargetChange, on
           disabled={!source || !target || !!sameEnvironment}
           onClick={onNext}
         >
-          Next: choose items
+          Choose items
         </button>
       </div>
     </section>
