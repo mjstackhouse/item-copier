@@ -29,6 +29,11 @@ export type Plan = {
   readonly blockers: readonly string[];
   /** Things the user should know but that do not stop the copy. */
   readonly warnings: readonly string[];
+  /**
+   * References to items that no longer exist in the source. The toolkit fails the copy on them unless
+   * it is told to skip them, which the preview asks for.
+   */
+  readonly deletedReferenceCount: number;
 };
 
 /**
@@ -44,7 +49,6 @@ export const buildPlan = async (params: {
   /** The languages to copy; each item is copied in those of them it has a variant in. */
   readonly languageCodenames: readonly string[];
   readonly linkedItemsDepth: number;
-  readonly skipMissingReferences: boolean;
   readonly onProgress: (message: string) => void;
 }): Promise<Plan> => {
   const { source, target, sourceData, languageCodenames } = params;
@@ -83,12 +87,6 @@ export const buildPlan = async (params: {
       `${skippedVariants.length} language variant(s) don't exist in the source and are skipped: ${listWithLimit(
         skippedVariants.map((w) => `${w.item.name} (${w.languageCodename})`),
       )}.`,
-    );
-  }
-
-  if (deletedReferences.length && !params.skipMissingReferences) {
-    warnings.push(
-      `${deletedReferences.length} reference(s) point to items that no longer exist in the source. Turn on "Skip references to deleted items" or the copy will fail.`,
     );
   }
 
@@ -190,7 +188,7 @@ export const buildPlan = async (params: {
       languageOrder(a.languageCodename) - languageOrder(b.languageCodename),
   );
 
-  return { rows, blockers, warnings };
+  return { rows, blockers, warnings, deletedReferenceCount: deletedReferences.length };
 };
 
 /**

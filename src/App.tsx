@@ -137,6 +137,7 @@ export const App = () => {
           selection={selection}
           publishMode={publishMode}
           onPublishModeChange={setPublishMode}
+          onSkipMissingReferencesChange={(skip) => setSelection((s) => ({ ...s, skipMissingReferences: skip }))}
           onBack={() => setStep("select")}
           onConfirm={(p) => {
             setPlan(p);

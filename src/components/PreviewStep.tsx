@@ -13,6 +13,7 @@ type Props = {
   readonly selection: Selection;
   readonly publishMode: PublishMode;
   readonly onPublishModeChange: (mode: PublishMode) => void;
+  readonly onSkipMissingReferencesChange: (skip: boolean) => void;
   readonly onBack: () => void;
   readonly onConfirm: (plan: Plan) => void;
 };
@@ -24,6 +25,7 @@ export const PreviewStep = ({
   selection,
   publishMode,
   onPublishModeChange,
+  onSkipMissingReferencesChange,
   onBack,
   onConfirm,
 }: Props) => {
@@ -41,7 +43,6 @@ export const PreviewStep = ({
       pickedIds: selection.pickedItems.map((i) => i.id),
       languageCodenames: languagesToCopy(selection, sourceData.languages),
       linkedItemsDepth: selection.linkedItemsDepth,
-      skipMissingReferences: selection.skipMissingReferences,
       onProgress: (m) => !cancelled && setProgress(m),
     })
       .then((p) => !cancelled && setPlan(p))
@@ -49,7 +50,16 @@ export const PreviewStep = ({
     return () => {
       cancelled = true;
     };
-  }, [source, target, sourceData, selection]);
+    // Only what the plan depends on: the skip option, for example, is set on this step and must not rebuild it.
+  }, [
+    source,
+    target,
+    sourceData,
+    selection.pickedItems,
+    selection.linkedItemsDepth,
+    selection.copyAllLanguages,
+    selection.chosenLanguages,
+  ]);
 
   if (error) {
     return (
@@ -141,6 +151,22 @@ export const PreviewStep = ({
           {w}
         </Message>
       ))}
+      {plan.deletedReferenceCount > 0 && (
+        <Message kind="warning">
+          <p>
+            {plan.deletedReferenceCount} reference(s) point to items that no longer exist in the source. The copy fails on
+            them unless they are skipped.
+          </p>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={selection.skipMissingReferences}
+              onChange={(e) => onSkipMissingReferencesChange(e.target.checked)}
+            />
+            Skip these references when copying
+          </label>
+        </Message>
+      )}
 
       <fieldset className="publish-mode">
         <legend className="section-heading">Publishing</legend>
@@ -262,7 +288,11 @@ export const PreviewStep = ({
         <button
           type="button"
           className="btn continue-btn"
-          disabled={plan.blockers.length > 0 || (confirmParts.length > 0 && !confirmed)}
+          disabled={
+            plan.blockers.length > 0 ||
+            (confirmParts.length > 0 && !confirmed) ||
+            (plan.deletedReferenceCount > 0 && !selection.skipMissingReferences)
+          }
           onClick={() => onConfirm(plan)}
         >
           Copy {plan.rows.length} variant(s)

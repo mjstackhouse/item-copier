@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 
 import {
   type Connection,
@@ -10,7 +10,7 @@ import {
   type SourceData,
 } from "../lib/kontent";
 import { LanguagePicker } from "./LanguagePicker";
-import { Message } from "./ui";
+import { Message, Tooltip } from "./ui";
 
 export type Selection = {
   /** The language to search in. */
@@ -107,6 +107,10 @@ export const SelectStep = ({
   };
 
   const noLanguages = languagesToCopy(selection, sourceData.languages).length === 0;
+  const id = useId();
+  // Collapsed by default: most copies use the defaults, and the summary shows what they are.
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsSummary = describeSettings(selection, sourceData);
 
   const typeName = (typeId: string) => sourceData.typesById.get(typeId)?.name ?? "";
   const results = search.results;
@@ -116,58 +120,11 @@ export const SelectStep = ({
       <h2>Choose items</h2>
 
       <div className="card step-card">
-        <h3>Copy settings</h3>
-
-        {sourceData.languages.length > 1 && (
-          <div className="setting">
-            <LanguagePicker
-              languages={sourceData.languages}
-              copyAll={selection.copyAllLanguages}
-              chosen={selection.chosenLanguages}
-              onChange={({ copyAll, chosen }) =>
-                onChange({ ...selection, copyAllLanguages: copyAll, chosenLanguages: chosen })
-              }
-            />
-            <p className="hint">Each selected item is copied in every chosen language it has a variant in.</p>
-            {noLanguages && <Message kind="warning">Choose at least one language to copy.</Message>}
-          </div>
-        )}
-
-        <div className="setting">
-          <label>
-            Include linked items
-            <select
-              value={selection.linkedItemsDepth}
-              onChange={(e) => onChange({ ...selection, linkedItemsDepth: Number(e.target.value) })}
-            >
-              <option value={0}>No, only the items I pick</option>
-              <option value={1}>Yes, 1 level deep</option>
-              <option value={2}>Yes, 2 levels deep</option>
-              <option value={3}>Yes, 3 levels deep</option>
-            </select>
-          </label>
-          <p className="hint">
-            Without linked items, the copied items still point to the items they link to. Those links work once the
-            linked items exist in the target too.
-          </p>
-        </div>
-
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={selection.skipMissingReferences}
-            onChange={(e) => onChange({ ...selection, skipMissingReferences: e.target.checked })}
-          />
-          Skip references to deleted items
-        </label>
-      </div>
-
-      <div className="card step-card">
         <h3>Find items</h3>
 
         <div>
           <form className="search-form" onSubmit={handleSearch}>
-            {/* Only affects searching: each item is copied in the languages chosen above. */}
+            {/* Only affects searching: each item is copied in the languages chosen in Copy settings. */}
             {sourceData.languages.length > 1 && (
               <select
                 className="search-language"
@@ -253,6 +210,48 @@ export const SelectStep = ({
 
       </div>
 
+
+      <details
+        className="card settings-card"
+        open={settingsOpen}
+        onToggle={(e) => setSettingsOpen((e.currentTarget as HTMLDetailsElement).open)}
+      >
+        <summary>
+          <span className="section-heading">Copy settings</span>
+          {!settingsOpen && <span className="muted settings-summary">{settingsSummary}</span>}
+        </summary>
+        <div className="settings-body">
+          {sourceData.languages.length > 1 && (
+            <LanguagePicker
+              languages={sourceData.languages}
+              copyAll={selection.copyAllLanguages}
+              chosen={selection.chosenLanguages}
+              onChange={({ copyAll, chosen }) =>
+                onChange({ ...selection, copyAllLanguages: copyAll, chosenLanguages: chosen })
+              }
+            />
+          )}
+
+          <div className="field">
+            <div className="field-label">
+              <label htmlFor={`${id}-depth`}>Include linked items</label>
+              <Tooltip text="Without linked items, the copied items still point to the items they link to. Those links work once the linked items exist in the target too." />
+            </div>
+            <select
+              id={`${id}-depth`}
+              className="depth-select"
+              value={selection.linkedItemsDepth}
+              onChange={(e) => onChange({ ...selection, linkedItemsDepth: Number(e.target.value) })}
+            >
+              <option value={0}>No, only the items I pick</option>
+              <option value={1}>Yes, 1 level deep</option>
+              <option value={2}>Yes, 2 levels deep</option>
+              <option value={3}>Yes, 3 levels deep</option>
+            </select>
+          </div>
+        </div>
+      </details>
+      {noLanguages && <Message kind="warning">Choose at least one language to copy.</Message>}
       <div className="actions">
         <button type="button" className="btn back-btn" onClick={onBack}>
           Back
@@ -269,4 +268,25 @@ export const SelectStep = ({
       </div>
     </section>
   );
+};
+
+/** One line describing the copy settings, shown while they are collapsed. */
+const describeSettings = (selection: Selection, sourceData: SourceData): string => {
+  const parts: string[] = [];
+  const { languages } = sourceData;
+  if (languages.length > 1) {
+    const chosen = languagesToCopy(selection, languages);
+    parts.push(
+      selection.copyAllLanguages
+        ? `all ${languages.length} languages`
+        : chosen.length === 0
+          ? "no languages chosen"
+          : chosen.length <= 3
+            ? chosen.join(", ")
+            : `${chosen.length} languages`,
+    );
+  }
+  const depth = selection.linkedItemsDepth;
+  parts.push(depth === 0 ? "no linked items" : `linked items ${depth} level${depth === 1 ? "" : "s"} deep`);
+  return parts.join(" · ");
 };

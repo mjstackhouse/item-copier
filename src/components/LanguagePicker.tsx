@@ -2,6 +2,7 @@ import { useId } from "react";
 import Select, { type StylesConfig } from "react-select";
 
 import type { Language } from "../lib/kontent";
+import { Tooltip } from "./ui";
 
 type Option = { readonly value: string; readonly label: string };
 
@@ -25,7 +26,10 @@ export const LanguagePicker = ({ languages, copyAll, chosen, onChange }: Props) 
 
   return (
     <fieldset className="copy-languages">
-      <legend>Languages to copy</legend>
+      <legend>
+        Languages to copy
+        <Tooltip text="Each selected item is copied in every chosen language it has a variant in." />
+      </legend>
       <div className="copy-languages-modes">
         <label className="checkbox">
           <input type="radio" name={`${id}-mode`} checked={copyAll} onChange={() => onChange({ copyAll: true, chosen })} />
