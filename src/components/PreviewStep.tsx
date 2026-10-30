@@ -313,7 +313,8 @@ export const PreviewStep = ({
           {confirmParts.length > 0 && (
             <label className="checkbox">
               <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />I
-              understand that in {target.environmentName}, {confirmParts.join(", ")}.
+              understand that in {target.environmentName}, {confirmParts.join(", ")}, and that this can&apos;t be
+              undone.
             </label>
           )}
         </div>

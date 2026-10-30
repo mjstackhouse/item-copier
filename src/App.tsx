@@ -74,12 +74,6 @@ export const App = () => {
           <p className="intro">
             Copy content items, the items they link to and the assets they use from one Kontent.ai environment to
             another. Your API keys stay in this browser tab and are never stored.
-            <br />
-            This is an unofficial tool, not supported by Kontent.ai. Copying overwrites items in the target and
-            can&apos;t be undone, so try it on a test environment first.{" "}
-            <a href="https://github.com/mjstackhouse/item-copier#using-the-tool" target="_blank" rel="noreferrer">
-              How to use it
-            </a>
           </p>
         )}
         <ol className="stepper">
@@ -167,6 +161,15 @@ export const App = () => {
           }}
         />
       )}
+
+      {/* Background rather than a warning, so it stays out of the way; the preview's confirmation carries the
+          warning that copies can't be undone. */}
+      <footer className="app-footer">
+        Unofficial tool, not supported by Kontent.ai ·{" "}
+        <a href="https://github.com/mjstackhouse/item-copier#using-the-tool" target="_blank" rel="noreferrer">
+          How to use it
+        </a>
+      </footer>
     </main>
   );
 };

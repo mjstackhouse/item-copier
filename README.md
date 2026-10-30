@@ -12,13 +12,13 @@ The tool copies content items, the items they link to and the assets they use fr
 
 **Before you start**
 
-- Try it on a test environment first. Copying overwrites items that already exist in the target, and it can't be undone. Before copying into an environment that matters, back it up (for example with a data-ops export).
+- Try it on a test environment first. Copying overwrites items that already exist in the target, and it can't be undone (the preview asks you to confirm this before overwriting anything). Before copying into an environment that matters, back it up (for example with a data-ops export).
 - The target needs the same content model: content types (with the same elements), taxonomy groups and terms, collections, languages and workflows, matched by codename. The preview tells you what's missing. Use data-ops `sync` to align the models.
 - Create a Management API key for each environment in **Project settings > API keys**. According to the Kontent.ai documentation, the tool needs these permissions:
   - Source: *Read content*, *Read assets*, *Manage content model* and *Manage environment settings*.
   - Target: *Create, edit, and delete content*; *Create, edit, and delete assets*; *Manage content model*; and *Manage environment settings*.
 
-  The tool only reads the content model and settings; it needs the last two permissions because they are what allow reading content types, taxonomies, languages, collections and workflows. A Personal API key works too, if its owner has those rights. (These permissions come from the documentation and haven't been tested with a key limited to exactly them.)
+  The tool only reads the content model and settings; it needs the last two permissions because they are what allow reading content types, taxonomies, languages, collections and workflows. A Personal API key works too, if its owner has those rights. (These match the documentation and the API key settings in Kontent.ai, but the tool hasn't been run with a key limited to exactly them.)
 
 **Copying**
 
@@ -145,3 +145,7 @@ A scheduled item (a published version plus a newer version scheduled to publish,
 The workflow step fallback was tested with a step ("AI review") added to the source's Default workflow but not the target's: the preview showed the note, and the copied draft landed in the target's Draft step. A second run, with the item published and a newer version in "AI review", published the item in the target and put the newer draft in the Draft step.
 
 A large selection (50 items in 24 languages, 65 variants, 54 of them new) copied correctly except for two variants, which exposed cases the preview doesn't check yet: an item in a workflow that the target's workflow scopes don't allow for its content type, and an archived item in a workflow whose steps can't move to Archived. The preview now handles both: the first item ("About us") moved to the workflow its scopes require ("Custom workflow", Draft step, published version kept), and the second is blocked. After the target's Default workflow was changed to allow its first step to move to Archived, the second item ("New article 869", whose target copy had been left unarchived) was no longer blocked: "Match the source" archived it in the target, and "Copy as drafts" over it kept it archived without sending any publishing request. A new archived item ("article 973") was created archived in the target. For an item archived in the source but published in the target ("30 years of expertise"), "Copy as drafts" was blocked, and "Match the source" predicted it would be archived and removed from the live site.
+
+## License
+
+[MIT](LICENSE).
