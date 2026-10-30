@@ -165,7 +165,7 @@ export const App = () => {
       {/* Background rather than a warning, so it stays out of the way; the preview's confirmation carries the
           warning that copies can't be undone. */}
       <footer className="app-footer">
-        Unofficial tool, not supported by Kontent.ai ·{" "}
+        Not an official Kontent.ai tool ·{" "}
         <a href="https://github.com/mjstackhouse/item-copier#using-the-tool" target="_blank" rel="noreferrer">
           How to use it
         </a>
