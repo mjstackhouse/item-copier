@@ -92,11 +92,11 @@ Options: `--languages=en-US,cs`, `--depth=0..3`, `--drafts` ("Copy as drafts"), 
 
 Typecheck and production build pass. Against a mocked Management API in the browser, the full flow was clicked through: connecting, search with **Load more**, linked items through linked-items elements, subpages elements and rich-text links, the deleted-reference and missing-variant warnings, the missing content type blocker, overwrite detection and confirmation, a full copy including an asset, and cancelling during both the export and the import.
 
-Against real Kontent.ai environments (an environment and its clone made without content items and assets), with `scripts/real-env-test.ts`, these matched the preview's predictions variant by variant:
+Against real Kontent.ai environments (an environment and its clone made without content items and assets), with `scripts/real-env-test.ts`, these matched the preview's predictions variant by variant. All of them overwrote items that already existed in the target from earlier copies, so they test updating existing items, not creating new ones:
 
 - "Match the source" for an item and its linked item, both live in the target (published version plus a newer draft).
 - "Copy as drafts" for the same items: both stayed live, with the copied content as a new draft.
-- A multilingual item (en-US and es-ES) with linked items that differ per language, and two images in a folder missing from the target: the images went to the root folder and the English variant was published.
+- A multilingual item (en-US and es-ES) with linked items that differ per language, and two images in a folder missing from the target: the images were newly uploaded to the root folder and the English variant was published.
 - Cancelling after the first imported variant: 1 copied, 4 cancelled, none failed.
 
-Still untested on real data: non-localizable elements across several languages, scheduled items, and large selections.
+Still untested on real data: copying items that don't exist in the target yet, non-localizable elements across several languages, scheduled items, and large selections.
