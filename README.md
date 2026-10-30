@@ -92,4 +92,11 @@ Options: `--languages=en-US,cs`, `--depth=0..3`, `--drafts` ("Copy as drafts"), 
 
 Typecheck and production build pass. Against a mocked Management API in the browser, the full flow was clicked through: connecting, search with **Load more**, linked items through linked-items elements, subpages elements and rich-text links, the deleted-reference and missing-variant warnings, the missing content type blocker, overwrite detection and confirmation, a full copy including an asset, and cancelling during both the export and the import.
 
-Against real Kontent.ai environments, one copy has succeeded so far: an item with linked items and an asset, between an environment and its clone. Broader testing (several languages, components, published and scheduled items, large selections) is still to do.
+Against real Kontent.ai environments (an environment and its clone made without content items and assets), with `scripts/real-env-test.ts`, these matched the preview's predictions variant by variant:
+
+- "Match the source" for an item and its linked item, both live in the target (published version plus a newer draft).
+- "Copy as drafts" for the same items: both stayed live, with the copied content as a new draft.
+- A multilingual item (en-US and es-ES) with linked items that differ per language, and two images in a folder missing from the target: the images went to the root folder and the English variant was published.
+- Cancelling after the first imported variant: 1 copied, 4 cancelled, none failed.
+
+Still untested on real data: non-localizable elements across several languages, scheduled items, and large selections.

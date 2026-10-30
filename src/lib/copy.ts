@@ -195,7 +195,7 @@ const toDrafts = (data: MigrationData, steps: WorkflowSteps): MigrationData => {
 const withExistingFolders = async (
   data: MigrationData,
   target: Connection,
-): Promise<{ readonly data: MigrationData; readonly movedToRoot: readonly string[] }> => {
+): Promise<{ readonly data: MigrationData; readonly movedToRoot: readonly MovedAsset[] }> => {
   if (!data.assets.some((a) => a.folder)) return { data, movedToRoot: [] };
 
   const folders = (await target.client.listAssetFolders().toPromise()).data.items;
@@ -208,19 +208,21 @@ const withExistingFolders = async (
   };
   collect(folders);
 
-  const movedToRoot: string[] = [];
+  const movedToRoot: MovedAsset[] = [];
   const assets = data.assets.map((asset) => {
     if (!asset.folder?.codename || codenames.has(asset.folder.codename)) return asset;
-    movedToRoot.push(`${asset.codename} (${asset.folder.codename})`);
+    movedToRoot.push({ codename: asset.codename, folder: asset.folder.codename });
     return { ...asset, folder: undefined };
   });
   return { data: { ...data, assets }, movedToRoot };
 };
 
+type MovedAsset = { readonly codename: string; readonly folder: string };
+
 const summarize = (
   importResult: Awaited<ReturnType<typeof importAsync>>,
   itemsNotRead: readonly string[],
-  assetsMovedToRoot: readonly string[],
+  movedToRoot: readonly MovedAsset[],
 ): CopySummary => {
   const { contentItems, languageVariants, uploadedAssets, editedAssets } = importResult;
   // Each result is "valid", "error" or "404"; anything other than "valid" counts as failed,
@@ -228,6 +230,10 @@ const summarize = (
   const isCancelled = (r: { state: string; error?: unknown }) => r.error instanceof CopyCancelledError;
   const isFailed = (r: { state: string; error?: unknown }) => r.state !== "valid" && !isCancelled(r);
   const failed = [...contentItems, ...languageVariants, ...uploadedAssets, ...editedAssets].filter(isFailed);
+  const written = new Set([
+    ...uploadedAssets.filter((r) => r.state === "valid").map((r) => r.inputItem.codename),
+    ...editedAssets.filter((r) => r.state === "valid").map((r) => r.inputItem.migrationAsset.codename),
+  ]);
 
   return {
     itemsOk: contentItems.filter((r) => r.state === "valid").length,
@@ -238,7 +244,10 @@ const summarize = (
     assetsUploaded: uploadedAssets.filter((r) => r.state === "valid").length,
     assetsUpdated: editedAssets.filter((r) => r.state === "valid").length,
     itemsNotRead,
-    assetsMovedToRoot,
+    // Only assets this copy actually created or updated: one already in the target is left where it is.
+    assetsMovedToRoot: movedToRoot
+      .filter(({ codename }) => written.has(codename))
+      .map(({ codename, folder }) => `${codename} (${folder})`),
     errors: failed.map((r) => describeError(r)),
   };
 };

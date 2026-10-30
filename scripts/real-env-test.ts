@@ -172,6 +172,9 @@ const runCopy = async (params: {
   console.log(`\nCopying ${plan.rows.length} variant(s) into "${params.target.environmentName}"…`);
   const abort = new AbortController();
   let variantsDone = 0;
+  // The toolkit also logs variant progress while reading the target's existing variants, before writing
+  // anything; only count lines after it starts importing variants.
+  let importingVariants = false;
 
   const result = await copyItems({
     source: params.source,
@@ -185,8 +188,9 @@ const runCopy = async (params: {
       if (options.verbose || entry.type === "error" || entry.type === "warning") {
         console.log(`  ${entry.type ?? ""} ${entry.message}`);
       }
+      if (entry.type === "info" && /^Importing '\d+' language variants/.test(entry.message)) importingVariants = true;
       // Progress lines for imported variants look like "languageVariant 50% Some item".
-      if (entry.type === "languageVariant" && /\d+%/.test(entry.message) && !/^0%/.test(entry.message)) {
+      if (importingVariants && entry.type === "languageVariant" && /\d+%/.test(entry.message) && !/^0%/.test(entry.message)) {
         variantsDone++;
         if (options.cancelAfter !== undefined && variantsDone >= options.cancelAfter && !abort.signal.aborted) {
           console.log(`  Cancelling after ${variantsDone} variant(s)`);
