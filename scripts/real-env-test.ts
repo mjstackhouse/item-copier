@@ -111,7 +111,14 @@ const main = async () => {
     return;
   }
 
-  await runCopy({ options, source, target, sourceData, plan });
+  const publishingRequests = await runCopy({ options, source, target, sourceData, plan });
+  // "Copy as drafts" promises that nothing is published, unpublished or scheduled; the end state can't
+  // show a re-publish of unchanged content, so check the requests themselves.
+  if (options.mode === "drafts" && publishingRequests.length) {
+    console.log(`
+FAIL: "Copy as drafts" sent publishing requests: ${publishingRequests.join(", ")}`);
+    process.exitCode = 1;
+  }
 
   console.log("\nChecking the target against the preview's predictions…");
   const after = await runPlan({ source, target, sourceData, pickedIds, languages, depth: options.depth, quiet: true });
@@ -167,8 +174,9 @@ const runCopy = async (params: {
   readonly target: Connection;
   readonly sourceData: SourceData;
   readonly plan: Plan;
-}) => {
+}): Promise<string[]> => {
   const { options, plan } = params;
+  const publishingRequests: string[] = [];
   console.log(`\nCopying ${plan.rows.length} variant(s) into "${params.target.environmentName}"…`);
   const abort = new AbortController();
   let variantsDone = 0;
@@ -185,6 +193,7 @@ const runCopy = async (params: {
     sourceWorkflowSteps: params.sourceData.workflowSteps,
     signal: abort.signal,
     onLog: (entry) => {
+      if (entry.type && publishingTypes.has(entry.type)) publishingRequests.push(`${entry.type} ${entry.message}`);
       if (options.verbose || entry.type === "error" || entry.type === "warning") {
         console.log(`  ${entry.type ?? ""} ${entry.message}`);
       }
@@ -204,7 +213,7 @@ const runCopy = async (params: {
   const s = result.summary;
   if (!s) {
     console.log("  Nothing was written to the target.");
-    return;
+    return publishingRequests;
   }
   console.log(
     `  Items: ${s.itemsOk} ok, ${s.itemsFailed} failed. Variants: ${s.variantsOk} ok, ${s.variantsFailed} failed, ${s.variantsCancelled} cancelled. Assets: ${s.assetsUploaded} uploaded, ${s.assetsUpdated} updated.`,
@@ -212,7 +221,11 @@ const runCopy = async (params: {
   if (s.itemsNotRead.length) console.log(`  Not read from the source: ${s.itemsNotRead.join(", ")}`);
   if (s.assetsMovedToRoot.length) console.log(`  Assets placed in the root folder: ${s.assetsMovedToRoot.join(", ")}`);
   for (const e of s.errors) console.log(`  ERROR: ${e}`);
+  return publishingRequests;
 };
+
+// Log types the toolkit uses right before it publishes, unpublishes or schedules a variant.
+const publishingTypes = new Set<string>(["publish", "unpublish", "schedulePublish", "scheduleUnpublish"]);
 
 /** Compares the target after the copy with what the preview predicted, variant by variant. */
 const verify = (before: Plan, after: Plan, mode: PublishMode) => {

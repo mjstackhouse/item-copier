@@ -12,11 +12,18 @@ export type WorkflowStepInfo = {
   readonly workflowCodename: string;
 };
 
-/** Workflow step id -> the step and its workflow, across all workflows. */
+/**
+ * "workflow id/step id" -> the step and its workflow, across all workflows. Keyed by both ids because
+ * the Published, Archived and Scheduled steps have the same ids in every workflow; use `findStep`.
+ */
 export type WorkflowSteps = ReadonlyMap<string, WorkflowStepInfo>;
 
-/** The latest version of a variant: its workflow step and schedule. */
+export const findStep = (steps: WorkflowSteps, state: { readonly workflowId: string; readonly stepId: string }) =>
+  steps.get(`${state.workflowId}/${state.stepId}`);
+
+/** The latest version of a variant: its workflow, workflow step and schedule. */
 export type VariantState = {
+  readonly workflowId: string;
   readonly stepId: string;
   readonly publishTime: string | null;
   readonly unpublishTime: string | null;
@@ -56,7 +63,7 @@ export const loadWorkflowSteps = async (client: ManagementClient): Promise<Workf
 
   for (const workflow of workflows) {
     const add = (step: { id: string; name: string; codename: string }, kind: StepKind) =>
-      steps.set(step.id, {
+      steps.set(`${workflow.id}/${step.id}`, {
         name: step.name,
         codename: step.codename,
         kind,
@@ -83,7 +90,7 @@ export const getPublishingState = async (params: {
   readonly languageCodename: string;
   readonly latest: VariantState;
 }): Promise<PublishingState> => {
-  const step = params.steps.get(params.latest.stepId) ?? { name: "", kind: "draft" as const };
+  const step = findStep(params.steps, params.latest) ?? { name: "", kind: "draft" as const };
 
   const hasPublishedVersion =
     step.kind === "published" ||

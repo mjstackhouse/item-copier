@@ -1,6 +1,7 @@
 import { type Connection, isNotFound, mapWithLimit, type SourceData } from "./kontent";
 import { expandWithLinkedItems, type PlannedItem } from "./linkedItems";
 import {
+  findStep,
   firstSteps,
   getPublishingState,
   loadWorkflowSteps,
@@ -136,7 +137,7 @@ export const buildPlan = async (params: {
   const rows = await mapWithLimit(known, 5, async (planned): Promise<PlanRow> => {
     const { languageCodename } = planned;
     const typeCodename = sourceData.typesById.get(planned.item.typeId)?.codename ?? "";
-    const sourceStep = planned.state && sourceData.workflowSteps.get(planned.state.stepId);
+    const sourceStep = findStep(sourceData.workflowSteps, planned.state);
     const [sourceState, targetState] = await Promise.all([
       planned.state
         ? getPublishingState({
@@ -236,6 +237,7 @@ const getTargetState = async (
       item: { codename },
       languageCodename,
       latest: {
+        workflowId: variant.data.workflow.workflowIdentifier.id ?? "",
         stepId: variant.data.workflow.stepIdentifier.id ?? "",
         publishTime: variant.data.schedule?.publishTime ?? null,
         unpublishTime: variant.data.schedule?.unpublishTime ?? null,
@@ -288,7 +290,7 @@ const checkWorkflows = (sourceSteps: WorkflowSteps, targetSteps: WorkflowSteps, 
   const targetWorkflows = new Set([...targetSteps.values()].map((s) => s.workflowCodename));
   const targetStepKeys = new Set([...targetSteps.values()].map((s) => `${s.workflowCodename}/${s.codename}`));
   const withStep = items.flatMap((p) => {
-    const step = p.state && sourceSteps.get(p.state.stepId);
+    const step = findStep(sourceSteps, p.state);
     return step ? [{ planned: p, step }] : [];
   });
 

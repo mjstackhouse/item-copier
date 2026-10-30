@@ -101,4 +101,6 @@ Against real Kontent.ai environments (an environment and its clone made without 
 
 A further test created a new item in the target: a Fact item with a non-localizable text element, in four languages (two only drafts, one published with a newer draft, one only published). The item was created once, every variant's publishing state matched the preview, and the non-localizable element's value matched the source in every variant and version, including empty values in published versions. Writing the variants one after another didn't let one variant's value overwrite another's.
 
-Still untested on real data: scheduled items and large selections.
+A scheduled item (a published version plus a newer version scheduled to publish, in a different display time zone) matched in both modes. "Match the source" reproduced the schedule exactly, time zone included. "Copy as drafts" over it cancelled the target's schedule, kept the live version and added a draft, without publishing anything. This test found that "Copy as drafts" had been re-publishing items in environments with more than one workflow (the Published, Archived and Scheduled steps share their ids across workflows); that is fixed, and the test script now fails a "Copy as drafts" run that sends any publishing request.
+
+Still untested on real data: large selections.

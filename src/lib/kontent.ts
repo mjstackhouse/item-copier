@@ -208,6 +208,7 @@ export const getItemsWithVariants = async (
         item: toItem(item),
         elements: variant?.elements,
         state: variant && {
+          workflowId: variant.workflow.workflow_identifier.id ?? "",
           stepId: variant.workflow.step_identifier.id ?? "",
           publishTime: variant.schedule?.publish_time ?? null,
           unpublishTime: variant.schedule?.unpublish_time ?? null,
