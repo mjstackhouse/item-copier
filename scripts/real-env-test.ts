@@ -23,7 +23,7 @@ import { HttpService } from "@kontent-ai/core-sdk";
 
 import { copyItems } from "../src/lib/copy";
 import { type Connection, connect, errorMessage, loadSourceData, type SourceData } from "../src/lib/kontent";
-import { buildPlan, type Plan, type PlanRow } from "../src/lib/plan";
+import { buildPlan, type Plan, type PlanRow, publishModeBlockers } from "../src/lib/plan";
 import { predict, type PublishMode } from "../src/lib/publishing";
 
 const usage = "Usage: npm run test:real -- <plan|copy> <item codename>... [--languages=a,b] [--depth=N] [--drafts] [--skip-deleted] [--cancel-after=N] [--verbose] [--yes]";
@@ -148,11 +148,12 @@ const main = async () => {
 
   const planStarted = Date.now();
   const plan = await runPlan({ source, target, sourceData, pickedIds, languages, depth: options.depth });
-  printPlan(plan, options.mode);
+  const blockers = [...plan.blockers, ...publishModeBlockers(plan, options.mode, target.environmentName)];
+  printPlan(plan, options.mode, blockers);
   console.log(`  Preview took ${seconds(planStarted)}`);
   if (options.command === "plan") return;
 
-  if (plan.blockers.length) throw new Error("The preview has blockers, so the copy would not be allowed.");
+  if (blockers.length) throw new Error("The preview has blockers, so the copy would not be allowed.");
   if (plan.deletedReferenceCount > 0 && !options.skipDeleted) {
     throw new Error("The preview found references to deleted items. Run again with --skip-deleted.");
   }
@@ -211,7 +212,7 @@ const predictionFor = (row: PlanRow, mode: PublishMode) =>
       })
     : { outcome: "", effects: [] };
 
-const printPlan = (plan: Plan, mode: PublishMode) => {
+const printPlan = (plan: Plan, mode: PublishMode, blockers: readonly string[]) => {
   console.log(`\nPreview (${mode === "drafts" ? "Copy as drafts" : "Match the source"}): ${plan.rows.length} variant(s)`);
   for (const row of plan.rows) {
     const { outcome, effects } = predictionFor(row, mode);
@@ -220,7 +221,7 @@ const printPlan = (plan: Plan, mode: PublishMode) => {
       `  ${row.item.codename} (${row.languageCodename}) [${why}] ${row.targetStatus} -> ${outcome}${effects.length ? ` [${effects.join(", ")}]` : ""}`,
     );
   }
-  for (const b of plan.blockers) console.log(`  BLOCKER: ${b}`);
+  for (const b of blockers) console.log(`  BLOCKER: ${b}`);
   for (const w of plan.warnings) console.log(`  WARNING: ${w}`);
   for (const n of plan.notes) console.log(`  NOTE: ${n}`);
   if (plan.deletedReferenceCount) console.log(`  Deleted references: ${plan.deletedReferenceCount}`);

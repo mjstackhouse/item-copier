@@ -18,6 +18,7 @@ import {
   getPublishingState,
   loadWorkflowSteps,
   type PublishingState,
+  type PublishMode,
   type VariantState,
   type WorkflowSteps,
 } from "./publishing";
@@ -525,4 +526,21 @@ const checkTaxonomyTerms = (
       ? `The target's "${groupName}" taxonomy group is missing these terms: ${[...terms].join(", ")}. They are used by: ${namesOf(affected)}. Add the terms in the target (for example with data-ops sync), then preview again.`
       : `The target has no "${groupName}" taxonomy group (codename ${groupCodename}), whose terms are used by: ${namesOf(affected)}. Add it in the target (for example with data-ops sync), then preview again.`,
   );
+};
+
+/**
+ * Blockers that depend on the publishing option, which can change after the preview is built.
+ * "Copy as drafts" keeps archived items archived, but archiving a variant that is live in the target
+ * would take it offline, which that option promises not to do.
+ */
+export const publishModeBlockers = (plan: Plan, mode: PublishMode, targetEnvironmentName: string): string[] => {
+  if (mode !== "drafts") return [];
+  const archivedOverLive = plan.rows.filter(
+    (r) => r.sourcePublishing?.stepKind === "archived" && r.targetPublishing?.hasPublishedVersion,
+  );
+  return archivedOverLive.length
+    ? [
+        `These items are archived in the source but live in ${targetEnvironmentName}. Copying them as archived would take them offline, which "Copy as drafts" doesn't do: ${[...new Set(archivedOverLive.map((r) => r.item.name))].join(", ")}. Choose "Match the source", or leave these items out.`,
+      ]
+    : [];
 };

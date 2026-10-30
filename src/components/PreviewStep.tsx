@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { errorMessage, type Connection, type SourceData } from "../lib/kontent";
-import { buildPlan, type Plan } from "../lib/plan";
+import { buildPlan, type Plan, publishModeBlockers } from "../lib/plan";
 import { type LiveEffect, predict, type PublishMode } from "../lib/publishing";
 import { Message } from "./ui";
 import { languagesToCopy, type Selection } from "./SelectStep";
@@ -98,18 +98,7 @@ export const PreviewStep = ({
         })
       : { outcome: "", effects: [] },
   }));
-  // "Copy as drafts" keeps archived items archived, but archiving a variant that is live in the target
-  // would take it offline, which that option promises not to do.
-  const archivedOverLive =
-    publishMode === "drafts"
-      ? plan.rows.filter((r) => r.sourcePublishing?.stepKind === "archived" && r.targetPublishing?.hasPublishedVersion)
-      : [];
-  const modeBlockers = archivedOverLive.length
-    ? [
-        `These items are archived in the source but live in ${target.environmentName}. Copying them as archived would take them offline, which "Copy as drafts" doesn't do: ${[...new Set(archivedOverLive.map((r) => r.item.name))].join(", ")}. Choose "Match the source", or leave these items out.`,
-      ]
-    : [];
-  const blockers = [...plan.blockers, ...modeBlockers];
+  const blockers = [...plan.blockers, ...publishModeBlockers(plan, publishMode, target.environmentName)];
   const overwrites = plan.rows.filter((r) => r.targetStatus === "overwrites existing").length;
   const countEffect = (effect: LiveEffect) => rows.filter((r) => r.prediction.effects.includes(effect)).length;
   const goesLive = countEffect("goes live");
