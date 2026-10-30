@@ -120,6 +120,25 @@ const hasPublishedVersionAsync = async (
   }
 };
 
+/**
+ * Where a source step lands in the target's workflow of the same codename: the step with the same codename,
+ * or, when the target's workflow lacks it (workflows edited after cloning, for example), its step of the same
+ * kind (Published, Archived, Scheduled) or, for a draft step, its first step. Undefined when the target has
+ * no workflow with that codename. The copy applies the same rule (see `fitStepsToTarget` in copy.ts).
+ */
+export const targetStepFor = (
+  targetSteps: WorkflowSteps,
+  workflowCodename: string,
+  step: { readonly codename: string; readonly kind: StepKind },
+): WorkflowStepInfo | undefined => {
+  // In workflow order, so the first draft step found is the workflow's first step.
+  const inWorkflow = [...targetSteps.values()].filter((s) => s.workflowCodename === workflowCodename);
+  return (
+    inWorkflow.find((s) => s.codename === step.codename) ??
+    inWorkflow.find((s) => s.kind === step.kind)
+  );
+};
+
 /** The first step of each workflow, by workflow codename: where the toolkit puts new drafts. */
 export const firstSteps = (steps: WorkflowSteps): ReadonlyMap<string, WorkflowStepInfo> => {
   const first = new Map<string, WorkflowStepInfo>();
@@ -145,12 +164,17 @@ export const predict = (params: {
   readonly mode: PublishMode;
   readonly source: PublishingState;
   readonly target: PublishingState | undefined;
+  /** The target step the latest version lands in when it is a draft (after any step fallback). */
+  readonly latestStepName: string;
+  /** The target step "Copy as drafts" puts published, scheduled and archived versions in. */
   readonly firstStepName: string;
 }): Prediction =>
-  params.mode === "drafts" ? predictDrafts(params) : { outcome: describeSource(params.source), effects: matchEffects(params) };
+  params.mode === "drafts"
+    ? predictDrafts(params)
+    : { outcome: describeSource(params.source, params.latestStepName), effects: matchEffects(params) };
 
 /** In "match" mode the target ends up in the source's state. */
-const describeSource = (source: PublishingState): string => {
+const describeSource = (source: PublishingState, latestStepName: string): string => {
   if (source.publishTime) {
     const when = formatTime(source.publishTime);
     return source.hasPublishedVersion && source.stepKind !== "published"
@@ -165,8 +189,8 @@ const describeSource = (source: PublishingState): string => {
       return "Archived";
     default:
       return source.hasPublishedVersion
-        ? `Published, with a newer draft in ${stepLabel(source.stepName)}`
-        : `Not published, in ${stepLabel(source.stepName)}`;
+        ? `Published, with a newer draft in ${stepLabel(latestStepName)}`
+        : `Not published, in ${stepLabel(latestStepName)}`;
   }
 };
 
@@ -190,13 +214,15 @@ const matchEffects = ({ source, target }: { source: PublishingState; target: Pub
 const predictDrafts = ({
   source,
   target,
+  latestStepName,
   firstStepName,
 }: {
   source: PublishingState;
   target: PublishingState | undefined;
+  latestStepName: string;
   firstStepName: string;
 }): Prediction => {
-  const draftStep = stepLabel(source.stepKind === "draft" ? source.stepName : firstStepName);
+  const draftStep = stepLabel(source.stepKind === "draft" ? latestStepName : firstStepName);
   const outcome = target?.hasPublishedVersion
     ? `Live version unchanged, with the copied content as a new draft in ${draftStep}`
     : `Not published, in ${draftStep}`;

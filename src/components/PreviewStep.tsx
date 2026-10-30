@@ -93,6 +93,7 @@ export const PreviewStep = ({
           mode: publishMode,
           source: row.sourcePublishing,
           target: row.targetPublishing,
+          latestStepName: row.latestStepName,
           firstStepName: row.firstStepName,
         })
       : { outcome: "", effects: [] },
@@ -152,6 +153,11 @@ export const PreviewStep = ({
       {plan.blockers.map((b) => (
         <Message key={b} kind="error">
           {b}
+        </Message>
+      ))}
+      {plan.notes.map((n) => (
+        <Message key={n} kind="info">
+          {n}
         </Message>
       ))}
       {plan.warnings.map((w) => (

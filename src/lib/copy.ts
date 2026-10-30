@@ -1,7 +1,7 @@
 import { exportAsync, importAsync, type Logger, type LogMessage, type MigrationData } from "@kontent-ai/migration-toolkit";
 
 import { type Connection, errorMessage } from "./kontent";
-import { firstSteps, type PublishMode, type WorkflowSteps } from "./publishing";
+import { firstSteps, loadWorkflowSteps, type PublishMode, targetStepFor, type WorkflowSteps } from "./publishing";
 
 export type LogEntry = LogMessage & { readonly time: Date };
 
@@ -136,7 +136,8 @@ export const copyItems = async (params: {
       .filter((k) => !read.has(k));
 
     const published = params.publishMode === "drafts" ? toDrafts(migrationData, params.sourceWorkflowSteps) : migrationData;
-    const { data, movedToRoot } = await withExistingFolders(published, params.target);
+    const fitted = fitStepsToTarget(published, params.sourceWorkflowSteps, await loadWorkflowSteps(params.target.client));
+    const { data, movedToRoot } = await withExistingFolders(fitted, params.target);
     if (params.signal.aborted) return { state: "cancelled" };
 
     phase = "import";
@@ -185,6 +186,27 @@ const toDrafts = (data: MigrationData, steps: WorkflowSteps): MigrationData => {
     }),
   };
 };
+
+/**
+ * The toolkit puts each version in the step with the same codename in the target's workflow, and fails
+ * when that step doesn't exist there (for example a step added after the environment was cloned). Such
+ * versions move to the target workflow's step of the same kind, or its first step (see `targetStepFor`);
+ * the preview tells the user. A missing workflow is left alone: the preview blocks the copy for it.
+ */
+const fitStepsToTarget = (data: MigrationData, sourceSteps: WorkflowSteps, targetSteps: WorkflowSteps): MigrationData => ({
+  ...data,
+  items: data.items.map((item) => {
+    const workflow = item.system.workflow.codename;
+    const versions = item.versions.map((v) => {
+      const kind =
+        [...sourceSteps.values()].find((s) => s.workflowCodename === workflow && s.codename === v.workflow_step.codename)
+          ?.kind ?? "draft";
+      const step = targetStepFor(targetSteps, workflow, { codename: v.workflow_step.codename, kind });
+      return step && step.codename !== v.workflow_step.codename ? { ...v, workflow_step: { codename: step.codename } } : v;
+    });
+    return { ...item, versions };
+  }),
+});
 
 /**
  * The toolkit puts each asset in the target folder with the same codename as in the source, and the

@@ -3,6 +3,8 @@ import { expandWithLinkedItems, type PlannedItem } from "./linkedItems";
 import {
   findStep,
   firstSteps,
+  targetStepFor,
+  type WorkflowStepInfo,
   getPublishingState,
   loadWorkflowSteps,
   type PublishingState,
@@ -20,7 +22,9 @@ export type PlanRow = PlannedItem & {
   readonly sourcePublishing?: PublishingState;
   /** Publishing state of the existing target variant; undefined when the target has none. */
   readonly targetPublishing?: PublishingState;
-  /** First step of the item's workflow, where copied drafts can land. */
+  /** The target step the latest version lands in when it is a draft, after any step fallback. */
+  readonly latestStepName: string;
+  /** The target step "Copy as drafts" uses for published, scheduled and archived versions. */
   readonly firstStepName: string;
 };
 
@@ -30,6 +34,8 @@ export type Plan = {
   readonly blockers: readonly string[];
   /** Things the user should know but that do not stop the copy. */
   readonly warnings: readonly string[];
+  /** Things worth knowing that are not a problem, such as steps the copy moves to another step. */
+  readonly notes: readonly string[];
   /**
    * References to items that no longer exist in the source. The toolkit fails the copy on them unless
    * it is told to skip them, which the preview asks for.
@@ -124,8 +130,9 @@ export const buildPlan = async (params: {
   blockers.push(
     ...checkTaxonomyGroups(sourceData, known),
     ...checkCollections(sourceData, known, new Set(targetCollections.data.collections.map((c) => c.codename))),
-    ...checkWorkflows(sourceData.workflowSteps, targetSteps, known),
+    ...checkMissingWorkflows(sourceData.workflowSteps, targetSteps, known),
   );
+  const notes = describeStepFallbacks(sourceData.workflowSteps, targetSteps, known);
 
   const sourceFirstSteps = firstSteps(sourceData.workflowSteps);
 
@@ -157,7 +164,7 @@ export const buildPlan = async (params: {
       targetStatus: targetState.status,
       sourcePublishing: sourceState,
       targetPublishing: targetState.publishing,
-      firstStepName: (sourceStep && sourceFirstSteps.get(sourceStep.workflowCodename)?.name) ?? "",
+      ...landingSteps(sourceStep, sourceFirstSteps, targetSteps),
     };
   });
 
@@ -188,6 +195,7 @@ export const buildPlan = async (params: {
     rows,
     blockers,
     warnings,
+    notes,
     deletedReferenceCount: deletedReferences.length,
     skippedVariants: skippedVariants.map((w) => ({
       itemId: w.item.id,
@@ -285,32 +293,64 @@ const checkCollections = (
   ];
 };
 
-/** The toolkit puts each variant in the workflow and step with the same codenames as in the source. */
-const checkWorkflows = (sourceSteps: WorkflowSteps, targetSteps: WorkflowSteps, items: readonly PlannedItem[]): string[] => {
+/**
+ * The toolkit puts each variant in the workflow with the same codename as in the source. A missing workflow
+ * blocks the copy: moving content into another workflow can change who may edit and publish it, so that is
+ * the user's decision. A missing step doesn't block; see `describeStepFallbacks`.
+ */
+const checkMissingWorkflows = (
+  sourceSteps: WorkflowSteps,
+  targetSteps: WorkflowSteps,
+  items: readonly PlannedItem[],
+): string[] => {
   const targetWorkflows = new Set([...targetSteps.values()].map((s) => s.workflowCodename));
-  const targetStepKeys = new Set([...targetSteps.values()].map((s) => `${s.workflowCodename}/${s.codename}`));
-  const withStep = items.flatMap((p) => {
+  const missing = items.flatMap((p) => {
     const step = findStep(sourceSteps, p.state);
-    return step ? [{ planned: p, step }] : [];
+    return step && !targetWorkflows.has(step.workflowCodename) ? [{ planned: p, step }] : [];
   });
+  if (!missing.length) return [];
+  return [
+    `The target has no workflow with the codename ${unique(missing.map(({ step }) => `"${step.workflowCodename}" (${step.workflowName})`)).join(", ")}. It is used by: ${namesOf(missing.map((m) => m.planned))}. Create the workflow in the target with the same codename, or sync the workflows with data-ops sync, then preview again.`,
+  ];
+};
 
-  const missingWorkflow = withStep.filter(({ step }) => !targetWorkflows.has(step.workflowCodename));
-  const missingStep = withStep.filter(
-    ({ step }) => targetWorkflows.has(step.workflowCodename) && !targetStepKeys.has(`${step.workflowCodename}/${step.codename}`),
+/**
+ * Steps that exist in the source's workflow but not in the target's workflow of the same codename (for
+ * example a step added after the environment was cloned). The copy moves those variants to the target
+ * workflow's step of the same kind, or its first step, and the preview says so.
+ */
+const describeStepFallbacks = (
+  sourceSteps: WorkflowSteps,
+  targetSteps: WorkflowSteps,
+  items: readonly PlannedItem[],
+): string[] => {
+  const moves = new Map<string, { from: WorkflowStepInfo; to: WorkflowStepInfo; items: PlannedItem[] }>();
+  for (const p of items) {
+    const from = findStep(sourceSteps, p.state);
+    const to = from && targetStepFor(targetSteps, from.workflowCodename, from);
+    if (!from || !to || to.codename === from.codename) continue;
+    const key = `${from.workflowCodename}/${from.codename}`;
+    const move = moves.get(key) ?? { from, to, items: [] };
+    move.items.push(p);
+    moves.set(key, move);
+  }
+  return [...moves.values()].map(
+    ({ from, to, items: moved }) =>
+      `The target's "${from.workflowName}" workflow has no "${from.name}" step, so ${moved.length} variant(s) in it will go to its "${to.name}" step instead: ${namesOf(moved)}.`,
   );
+};
 
-  const blockers: string[] = [];
-  if (missingWorkflow.length) {
-    blockers.push(
-      `The target is missing these workflows: ${unique(missingWorkflow.map(({ step }) => step.workflowName)).join(", ")}. They are used by: ${namesOf(missingWorkflow.map((w) => w.planned))}. Add the workflows to the target first (for example with data-ops sync).`,
-    );
-  }
-  for (const key of unique(missingStep.map(({ step }) => `${step.workflowCodename}/${step.codename}`))) {
-    const affected = missingStep.filter(({ step }) => `${step.workflowCodename}/${step.codename}` === key);
-    const { step } = affected[0] as (typeof affected)[number];
-    blockers.push(
-      `The target's "${step.workflowName}" workflow has no "${step.name}" step (codename ${step.codename}). It is used by: ${namesOf(affected.map((a) => a.planned))}. Add the step in the target, or move the items to another step in the source.`,
-    );
-  }
-  return blockers;
+/** Where the variant's versions land in the target, for the preview's predictions. */
+const landingSteps = (
+  sourceStep: WorkflowStepInfo | undefined,
+  sourceFirstSteps: ReadonlyMap<string, WorkflowStepInfo>,
+  targetSteps: WorkflowSteps,
+): { readonly latestStepName: string; readonly firstStepName: string } => {
+  if (!sourceStep) return { latestStepName: "", firstStepName: "" };
+  const workflow = sourceStep.workflowCodename;
+  const sourceFirst = sourceFirstSteps.get(workflow);
+  return {
+    latestStepName: (targetStepFor(targetSteps, workflow, sourceStep) ?? sourceStep).name,
+    firstStepName: sourceFirst ? (targetStepFor(targetSteps, workflow, sourceFirst) ?? sourceFirst).name : "",
+  };
 };

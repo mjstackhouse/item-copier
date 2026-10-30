@@ -146,7 +146,13 @@ const runPlan = async (params: {
 
 const predictionFor = (row: PlanRow, mode: PublishMode) =>
   row.sourcePublishing
-    ? predict({ mode, source: row.sourcePublishing, target: row.targetPublishing, firstStepName: row.firstStepName })
+    ? predict({
+        mode,
+        source: row.sourcePublishing,
+        target: row.targetPublishing,
+        latestStepName: row.latestStepName,
+        firstStepName: row.firstStepName,
+      })
     : { outcome: "", effects: [] };
 
 const printPlan = (plan: Plan, mode: PublishMode) => {
@@ -160,6 +166,7 @@ const printPlan = (plan: Plan, mode: PublishMode) => {
   }
   for (const b of plan.blockers) console.log(`  BLOCKER: ${b}`);
   for (const w of plan.warnings) console.log(`  WARNING: ${w}`);
+  for (const n of plan.notes) console.log(`  NOTE: ${n}`);
   if (plan.deletedReferenceCount) console.log(`  Deleted references: ${plan.deletedReferenceCount}`);
   if (plan.skippedVariants.length) {
     console.log(
@@ -250,7 +257,7 @@ const verify = (before: Plan, after: Plan, mode: PublishMode) => {
         problems.push(`scheduled publish ${now.publishTime ?? "none"}, expected ${expectedPublishTime ?? "none"}`);
       }
       const expectedStep =
-        mode === "drafts" ? (source.stepKind === "draft" ? source.stepName : row.firstStepName) : source.stepName;
+        mode === "drafts" && source.stepKind !== "draft" ? row.firstStepName : row.latestStepName;
       // A latest version that is published or scheduled is checked through the published version and schedule above.
       if (now.stepKind === "draft" && expectedStep && now.stepName !== expectedStep) {
         problems.push(`latest version in the "${now.stepName}" step, expected "${expectedStep}"`);
