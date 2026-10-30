@@ -78,6 +78,16 @@ If both print a status code instead of a CORS error, you are clear. Then try a r
   - If a new version changes the patched lines, `npm install` fails with "patch failed". Make the same edits in `node_modules/@kontent-ai/migration-toolkit/dist/core/utils/binary-data.utils.js`, `dist/core/utils/management-client-utils.js` and `dist/import/importers/language-variant-importer.js`, run `npx patch-package @kontent-ai/migration-toolkit`, and delete the old file in `patches/`. Then test both publishing options against a test environment, because "Copy as drafts" depends on the second patch to keep live items live.
   - Builds must run npm's install scripts (the default on Netlify, Vercel and Azure Static Web Apps). With `--ignore-scripts` the patch is not applied and copies with assets fail.
 
+## Testing against real environments
+
+`scripts/real-env-test.ts` runs the app's own preview and copy code with Node.js against real environments, then checks the target against the preview's predictions variant by variant (published version, schedule, workflow step).
+
+1. Create `.env.local` (git ignores it) with `SOURCE_ENVIRONMENT_ID`, `SOURCE_API_KEY`, `TARGET_ENVIRONMENT_ID` and `TARGET_API_KEY`. Don't prefix them with `VITE_`, which would put them into the browser bundle. Use dedicated Management API keys limited to these environments, with a short expiry, and a **test environment as the target**.
+2. Preview only, read-only: `npm run test:real -- plan <item codename> [more codenames]`
+3. Copy and verify: `npm run test:real -- copy <item codename> --yes`. Without `--yes` it stops after the preview.
+
+Options: `--languages=en-US,cs`, `--depth=0..3`, `--drafts` ("Copy as drafts"), `--skip-deleted`, `--cancel-after=N` (cancels after N variants are imported), `--verbose` (every toolkit log line). It doesn't cover browser-only behavior, such as downloading and uploading assets from a browser.
+
 ## Tested so far
 
 Typecheck and production build pass. Against a mocked Management API in the browser, the full flow was clicked through: connecting, search with **Load more**, linked items through linked-items elements, subpages elements and rich-text links, the deleted-reference and missing-variant warnings, the missing content type blocker, overwrite detection and confirmation, a full copy including an asset, and cancelling during both the export and the import.
