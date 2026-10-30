@@ -1,15 +1,19 @@
 import { useId, useMemo, useState } from "react";
 
 import {
+  activeFilterCount,
   type Connection,
   errorMessage,
   type Item,
   type Language,
+  noFilters,
+  type SearchFilters as Filters,
   type SearchResult,
   searchItems,
   type SourceData,
 } from "../lib/kontent";
 import { LanguagePicker } from "./LanguagePicker";
+import { SearchFilters } from "./SearchFilters";
 import { Message, Tooltip } from "./ui";
 
 export type Selection = {
@@ -33,10 +37,11 @@ export const languagesToCopy = (selection: Selection, languages: readonly Langua
 /** The last search and its loaded results; kept by the parent so it survives going back from the preview. */
 export type SearchState = {
   readonly phrase: string;
+  readonly filters: Filters;
   readonly results?: SearchResult;
 };
 
-export const emptySearch: SearchState = { phrase: "" };
+export const emptySearch: SearchState = { phrase: "", filters: noFilters };
 
 type Props = {
   readonly source: Connection;
@@ -60,6 +65,9 @@ export const SelectStep = ({
   onNext,
 }: Props) => {
   const [phrase, setPhrase] = useState(search.phrase);
+  const [filters, setFilters] = useState(search.filters);
+  const filterCount = activeFilterCount(filters);
+  const [filtersOpen, setFiltersOpen] = useState(filterCount > 0);
   const [status, setStatus] = useState<{ readonly loading?: "search" | "more"; readonly error?: string }>({});
   const picked = useMemo(() => new Set(selection.pickedItems.map((i) => i.id)), [selection.pickedItems]);
 
@@ -69,6 +77,7 @@ export const SelectStep = ({
       const page = await searchItems({
         client: source.client,
         searchPhrase: continuationToken ? search.phrase : phrase,
+        filters: continuationToken ? search.filters : filters,
         languageCodename: selection.languageCodename,
         continuationToken,
       });
@@ -76,9 +85,10 @@ export const SelectStep = ({
         continuationToken && search.results
           ? {
               phrase: search.phrase,
+              filters: search.filters,
               results: { items: [...search.results.items, ...page.items], continuationToken: page.continuationToken },
             }
-          : { phrase, results: page },
+          : { phrase, filters, results: page },
       );
       setStatus({});
     } catch (error) {
@@ -103,7 +113,7 @@ export const SelectStep = ({
   const changeLanguage = (languageCodename: string) => {
     onChange({ ...selection, languageCodename });
     // Results are for one language, so they no longer apply.
-    onSearchChange({ phrase: search.phrase });
+    onSearchChange({ phrase: search.phrase, filters: search.filters });
   };
 
   const noLanguages = languagesToCopy(selection, sourceData.languages).length === 0;
@@ -147,12 +157,32 @@ export const SelectStep = ({
               value={phrase}
               onChange={(e) => setPhrase(e.target.value)}
             />
+            <button
+              type="button"
+              className="btn back-btn filters-toggle"
+              aria-expanded={filtersOpen}
+              onClick={() => setFiltersOpen(!filtersOpen)}
+            >
+              {filterCount > 0 ? `Filters (${filterCount})` : "Filters"}
+            </button>
             <button type="submit" className="btn continue-btn" disabled={!!status.loading}>
               {status.loading === "search" && <span className="loading-span" aria-hidden="true" />}
               {status.loading === "search" ? "Searching" : "Search"}
             </button>
           </form>
-          <p className="hint">Searches in the selected language. Leave the search empty to list all items.</p>
+          {filtersOpen && (
+            <div className="filters-panel">
+              <SearchFilters sourceData={sourceData} filters={filters} onChange={setFilters} />
+              {filterCount > 0 && (
+                <button type="button" className="link-btn" onClick={() => setFilters(noFilters)}>
+                  Clear filters
+                </button>
+              )}
+            </div>
+          )}
+          <p className="hint">
+            Searches in the selected language. Leave the search empty to list all items that match the filters.
+          </p>
         </div>
         {status.error && <Message kind="error">{status.error}</Message>}
 

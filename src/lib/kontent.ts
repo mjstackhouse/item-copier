@@ -100,6 +100,17 @@ export type SourceData = {
   readonly taxonomyTerms: ReadonlyMap<string, TaxonomyTermInfo>;
   /** Element id -> element type ("modular_content", "rich_text", ...), across all types and snippets. */
   readonly elementTypes: ReadonlyMap<string, string>;
+  /** Collections in the environment's order, for the search filters. */
+  readonly collections: readonly { readonly id: string; readonly name: string }[];
+  /** Taxonomy groups with their terms flattened in tree order, for the search filters. */
+  readonly taxonomyGroups: readonly TaxonomyGroupInfo[];
+};
+
+export type TaxonomyGroupInfo = {
+  readonly id: string;
+  readonly name: string;
+  /** `depth` is 0 for top-level terms. */
+  readonly terms: readonly { readonly id: string; readonly name: string; readonly depth: number }[];
 };
 
 /** Creates a client and checks the credentials by loading the environment's name. */
@@ -167,6 +178,19 @@ export const loadSourceData = async (client: ManagementClient): Promise<SourceDa
     typeElements: new Map(types.data.items.map((t) => [t.id, flattenTypeElements(t.elements, snippetsById)])),
     taxonomyTerms: flattenTaxonomyTerms(taxonomies.data.items),
     elementTypes,
+    collections: collections.data.collections.map((c) => ({ id: c.id, name: c.name })),
+    taxonomyGroups: taxonomies.data.items.map((group) => {
+      type Term = { id: string; name: string; terms: readonly Term[] };
+      const terms: { id: string; name: string; depth: number }[] = [];
+      const add = (list: readonly Term[], depth: number) => {
+        for (const term of list) {
+          terms.push({ id: term.id, name: term.name, depth });
+          add(term.terms, depth + 1);
+        }
+      };
+      add(group.terms as readonly Term[], 0);
+      return { id: group.id, name: group.name, terms };
+    }),
   };
 };
 
@@ -205,19 +229,71 @@ const toItem = (contract: {
   collectionId: contract.collection.id ?? "",
 });
 
+/** Filters for `searchItems`. An empty list doesn't filter; values within one filter match any of them. */
+export type SearchFilters = {
+  readonly contentTypeIds: readonly string[];
+  readonly collectionIds: readonly string[];
+  /** "workflow id/step id", like the keys of `WorkflowSteps`. */
+  readonly workflowSteps: readonly string[];
+  /** "group id/term id", or "group id/" for items without any term from that group. */
+  readonly taxonomyTerms: readonly string[];
+};
+
+export const noFilters: SearchFilters = { contentTypeIds: [], collectionIds: [], workflowSteps: [], taxonomyTerms: [] };
+
+export const activeFilterCount = (filters: SearchFilters): number =>
+  Object.values(filters).filter((values: readonly string[]) => values.length > 0).length;
+
+/** Groups "parent id/child id" values by parent, keeping the order they were chosen in. */
+const groupByParent = (values: readonly string[]): Map<string, string[]> => {
+  const groups = new Map<string, string[]>();
+  for (const value of values) {
+    const [parent = "", child = ""] = value.split("/");
+    groups.set(parent, [...(groups.get(parent) ?? []), child]);
+  }
+  return groups;
+};
+
+const filterContract = (filters: SearchFilters) => ({
+  ...(filters.contentTypeIds.length ? { content_types: filters.contentTypeIds.map((id) => ({ id })) } : {}),
+  ...(filters.collectionIds.length ? { collections: filters.collectionIds.map((id) => ({ id })) } : {}),
+  ...(filters.workflowSteps.length
+    ? {
+        workflow_steps: [...groupByParent(filters.workflowSteps)].map(([workflowId, stepIds]) => ({
+          workflow_identifier: { id: workflowId },
+          step_identifiers: stepIds.map((id) => ({ id })),
+        })),
+      }
+    : {}),
+  ...(filters.taxonomyTerms.length
+    ? {
+        taxonomy_groups: [...groupByParent(filters.taxonomyTerms)].map(([groupId, termIds]) => ({
+          taxonomy_identifier: { id: groupId },
+          term_identifiers: termIds.filter((id) => id).map((id) => ({ id })),
+          include_uncategorized: termIds.includes(""),
+        })),
+      }
+    : {}),
+});
+
 /**
- * Finds items with a variant in the language whose name or text content matches the phrase,
- * one page (up to 50 items) at a time. An empty phrase lists all items in that language.
+ * Finds items with a variant in the language whose name or text content matches the phrase and that
+ * match the filters, one page (up to 50 items) at a time. An empty phrase lists all matching items.
  */
 export const searchItems = async (params: {
   readonly client: ManagementClient;
   readonly searchPhrase: string;
+  readonly filters: SearchFilters;
   readonly languageCodename: string;
   readonly continuationToken?: string | null;
 }): Promise<SearchResult> => {
   const phrase = params.searchPhrase.trim();
   const query = params.client.filterItemsWithVariants().withData({
-    filters: { language: { codename: params.languageCodename }, ...(phrase ? { search_phrase: phrase } : {}) },
+    filters: {
+      language: { codename: params.languageCodename },
+      ...(phrase ? { search_phrase: phrase } : {}),
+      ...filterContract(params.filters),
+    },
     order: { by: "name", direction: "asc" },
   });
   if (params.continuationToken) query.xContinuationToken(params.continuationToken);

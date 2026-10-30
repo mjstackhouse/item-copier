@@ -1,10 +1,9 @@
 import { useId } from "react";
-import Select, { type StylesConfig } from "react-select";
+import Select from "react-select";
 
 import type { Language } from "../lib/kontent";
+import { type Option, selectStyles } from "./selectStyles";
 import { Tooltip } from "./ui";
-
-type Option = { readonly value: string; readonly label: string };
 
 type Props = {
   readonly languages: readonly Language[];
@@ -59,53 +58,9 @@ export const LanguagePicker = ({ languages, copyAll, chosen, onChange }: Props) 
           // Switching back to "All languages" does what a "clear all" button would.
           isClearable={false}
           classNamePrefix="select"
-          styles={selectStyles}
+          styles={selectStyles<Option>()}
         />
       )}
     </fieldset>
   );
-};
-
-// Matches how the author's usage insights and asset description auditor style react-select:
-// a light gray box without a border, and white pill-shaped chips with a gray border.
-const selectStyles: StylesConfig<Option, true> = {
-  control: (base, state) => ({
-    ...base,
-    fontSize: "13px",
-    minHeight: "40px",
-    padding: "4px 8px",
-    border: `1px solid ${state.isFocused ? "var(--lighter-black)" : "transparent"}`,
-    borderRadius: "8px",
-    backgroundColor: state.isFocused ? "white" : "var(--color-gray-100)",
-    boxShadow: "none",
-    "&:hover": { borderColor: "var(--lighter-black)" },
-  }),
-  valueContainer: (base) => ({ ...base, gap: "4px", padding: 0 }),
-  placeholder: (base) => ({ ...base, color: "var(--color-gray-500)" }),
-  multiValue: (base) => ({
-    ...base,
-    alignItems: "center",
-    margin: 0,
-    padding: "0 2px 0 8px",
-    border: "1px solid var(--color-gray-400)",
-    borderRadius: "9999px",
-    backgroundColor: "white",
-  }),
-  multiValueLabel: (base) => ({ ...base, padding: "3px 0", fontSize: "13px", color: "var(--lighter-black)" }),
-  multiValueRemove: (base) => ({
-    ...base,
-    marginLeft: "2px",
-    borderRadius: "9999px",
-    color: "var(--color-gray-400)",
-    cursor: "pointer",
-    "&:hover": { backgroundColor: "transparent", color: "var(--red)" },
-  }),
-  menu: (base) => ({ ...base, zIndex: 30, borderRadius: "8px" }),
-  option: (base, state) => ({
-    ...base,
-    fontSize: "14px",
-    color: "var(--lighter-black)",
-    backgroundColor: state.isFocused ? "var(--lighter-purple)" : "white",
-    cursor: "pointer",
-  }),
 };
