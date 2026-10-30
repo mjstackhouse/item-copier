@@ -67,7 +67,7 @@ If both print a status code instead of a CORS error, you are clear. Then try a r
 
 ## Known limitations and next steps
 
-- **Several languages in one run.** The toolkit takes a list of item and language pairs, so all chosen languages are copied in one run, and each content item is created once. Preview and copy time grow with the number of languages. How non-localizable elements (shared by all of an item's variants) behave when several variants are copied in one run has not been tested yet.
+- **Several languages in one run.** The toolkit takes a list of item and language pairs, so all chosen languages are copied in one run, and each content item is created once. Preview and copy time grow with the number of languages. Non-localizable elements (shared by all of an item's variants) copy correctly in one run: each variant and version keeps its value.
 - **Content model.** The target must already have matching content types, taxonomies, collections and workflows. The preview checks the language, content types, collections, workflows and workflow steps, but not individual elements or taxonomy terms; those mismatches surface as errors during the copy. Use data-ops `sync` to align models.
 - **Asset folders.** The toolkit puts each asset in the target folder with the same codename as in the source, and the Management API rejects the asset if that folder doesn't exist. This happens, for example, after cloning an environment without content items and assets, which leaves the clone without asset folders. Before importing, the app lists the target's folders (including nested ones) and puts assets whose folder is missing in the root folder instead, listing them in the copy summary. Copying again after creating the folders moves them, because the toolkit compares folders when deciding whether to update an asset. Nested folders work too: the toolkit only searched top-level folders, which the second patch in `patches/` fixes.
 - **Workflow extras.** Tasks, comments, assignees and other workflow data are not copied (a toolkit limitation, also documented by data-ops).
@@ -99,4 +99,6 @@ Against real Kontent.ai environments (an environment and its clone made without 
 - A multilingual item (en-US and es-ES) with linked items that differ per language, and two images in a folder missing from the target: the images were newly uploaded to the root folder and the English variant was published.
 - Cancelling after the first imported variant: 1 copied, 4 cancelled, none failed.
 
-Still untested on real data: copying items that don't exist in the target yet, non-localizable elements across several languages, scheduled items, and large selections.
+A further test created a new item in the target: a Fact item with a non-localizable text element, in four languages (two only drafts, one published with a newer draft, one only published). The item was created once, every variant's publishing state matched the preview, and the non-localizable element's value matched the source in every variant and version, including empty values in published versions. Writing the variants one after another didn't let one variant's value overwrite another's.
+
+Still untested on real data: scheduled items and large selections.
