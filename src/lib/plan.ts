@@ -16,6 +16,7 @@ import {
   getPublishingState,
   loadWorkflowSteps,
   type PublishingState,
+  type VariantState,
   type WorkflowSteps,
 } from "./publishing";
 
@@ -162,8 +163,13 @@ export const buildPlan = async (params: {
     `Checking publishing state and which of the ${known.length} language variants already exist in the target`,
   );
 
-  const targetItemTypes = new Map<string, Promise<string | undefined | null>>();
-  const rows = await mapWithLimit(known, 5, async (planned): Promise<PlanRow> => {
+  const targetVariants = await loadTargetVariants(
+    target,
+    known,
+    new Map(targetLanguages.data.items.map((l) => [l.id, l.codename])),
+  );
+  // Two at a time: requests are paced anyway, and the Management API advises against parallel requests.
+  const rows = await mapWithLimit(known, 2, async (planned): Promise<PlanRow> => {
     const { languageCodename } = planned;
     const typeCodename = sourceData.typesById.get(planned.item.typeId)?.codename ?? "";
     const sourceStep = findStep(sourceData.workflowSteps, planned.state);
@@ -177,7 +183,7 @@ export const buildPlan = async (params: {
             latest: planned.state,
           })
         : undefined,
-      getTargetState(target, targetSteps, targetItemTypes, planned.item.codename, languageCodename),
+      getTargetState(target, targetSteps, targetVariants, planned.item.codename, languageCodename),
     ]);
     return {
       ...planned,
@@ -227,57 +233,75 @@ export const buildPlan = async (params: {
   };
 };
 
+type TargetVariants = {
+  /** Item codename -> its content type id in the target, or null when the target has no such item. */
+  readonly itemTypes: ReadonlyMap<string, string | null>;
+  /** "codename/language" -> the latest version's workflow and schedule, for variants that exist in the target. */
+  readonly latest: ReadonlyMap<string, VariantState>;
+};
+
+const bulkGetLimit = 100;
+
 /**
- * `itemTypes` caches the target item lookup per codename (null: not in the target), so an item
- * copied in several languages is looked up once.
+ * Looks up the planned variants in the target with as few requests as possible: one per item to see whether
+ * it exists (a bulk request fails as a whole when any item in it doesn't exist), then one bulk request per
+ * 100 variants of the items that do.
  */
+const loadTargetVariants = async (
+  target: Connection,
+  planned: readonly PlannedItem[],
+  /** The target's language id -> codename; bulk responses refer to languages by id. */
+  languageCodenames: ReadonlyMap<string, string>,
+): Promise<TargetVariants> => {
+  const codenames = unique(planned.map((p) => p.item.codename));
+  const types = await mapWithLimit(codenames, 2, async (codename) => {
+    try {
+      return (await target.client.viewContentItem().byItemCodename(codename).toPromise()).data.type.id ?? "";
+    } catch (error) {
+      if (isNotFound(error)) return null;
+      throw error;
+    }
+  });
+  const itemTypes = new Map(codenames.map((codename, i) => [codename, types[i] ?? null]));
+
+  const pairs = planned.filter((p) => itemTypes.get(p.item.codename) !== null);
+  const latest = new Map<string, VariantState>();
+  for (let start = 0; start < pairs.length; start += bulkGetLimit) {
+    const chunk = pairs.slice(start, start + bulkGetLimit);
+    const response = await target.client
+      .bulkGetItemsWithVariants()
+      .withData({
+        variants: chunk.map((p) => ({ item: { codename: p.item.codename }, language: { codename: p.languageCodename } })),
+      })
+      .toAllPromise();
+    for (const { item, variant } of response.data.items) {
+      const languageCodename = variant && languageCodenames.get(variant.language.id ?? "");
+      if (!variant || !languageCodename) continue;
+      latest.set(`${item.codename}/${languageCodename}`, {
+        workflowId: variant.workflow.workflow_identifier.id ?? "",
+        stepId: variant.workflow.step_identifier.id ?? "",
+        publishTime: variant.schedule?.publish_time ?? null,
+        unpublishTime: variant.schedule?.unpublish_time ?? null,
+      });
+    }
+  }
+  return { itemTypes, latest };
+};
+
 const getTargetState = async (
   target: Connection,
   steps: WorkflowSteps,
-  itemTypes: Map<string, Promise<string | undefined | null>>,
+  variants: TargetVariants,
   codename: string,
   languageCodename: string,
 ): Promise<{ readonly status: TargetStatus; readonly typeId?: string; readonly publishing?: PublishingState }> => {
-  if (!itemTypes.has(codename)) {
-    itemTypes.set(
-      codename,
-      target.client
-        .viewContentItem()
-        .byItemCodename(codename)
-        .toPromise()
-        .then((r) => r.data.type.id)
-        .catch((error: unknown) => {
-          if (isNotFound(error)) return null;
-          throw error;
-        }),
-    );
-  }
-  const typeId = await itemTypes.get(codename);
-  if (typeId === null) return { status: "new item" };
+  const typeId = variants.itemTypes.get(codename);
+  if (typeId === null || typeId === undefined) return { status: "new item" };
+  const latest = variants.latest.get(`${codename}/${languageCodename}`);
+  if (!latest) return { status: "new language variant", typeId };
 
-  try {
-    const variant = await target.client
-      .viewLanguageVariant()
-      .byItemCodename(codename)
-      .byLanguageCodename(languageCodename)
-      .toPromise();
-    const publishing = await getPublishingState({
-      client: target.client,
-      steps,
-      item: { codename },
-      languageCodename,
-      latest: {
-        workflowId: variant.data.workflow.workflowIdentifier.id ?? "",
-        stepId: variant.data.workflow.stepIdentifier.id ?? "",
-        publishTime: variant.data.schedule?.publishTime ?? null,
-        unpublishTime: variant.data.schedule?.unpublishTime ?? null,
-      },
-    });
-    return { status: "overwrites existing", typeId, publishing };
-  } catch (error) {
-    if (isNotFound(error)) return { status: "new language variant", typeId };
-    throw error;
-  }
+  const publishing = await getPublishingState({ client: target.client, steps, item: { codename }, languageCodename, latest });
+  return { status: "overwrites existing", typeId, publishing };
 };
 
 const unique = (values: readonly string[]) => [...new Set(values)];

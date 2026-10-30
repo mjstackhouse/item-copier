@@ -19,6 +19,8 @@
  *
  * What it can't check: browser-only behavior (asset download and upload from a browser, the screens).
  */
+import { HttpService } from "@kontent-ai/core-sdk";
+
 import { copyItems } from "../src/lib/copy";
 import { type Connection, connect, errorMessage, loadSourceData, type SourceData } from "../src/lib/kontent";
 import { buildPlan, type Plan, type PlanRow } from "../src/lib/plan";
@@ -71,6 +73,42 @@ const requireEnv = (name: string): string => {
   return value;
 };
 
+/**
+ * Records when each Management API request actually starts (after any pacing), per environment, by wrapping
+ * the SDK's HTTP service, which both the app and the toolkit use underneath. Retries inside the SDK aren't
+ * counted separately.
+ */
+const requestStarts = new Map<string, number[]>();
+for (const method of ["getAsync", "postAsync", "putAsync", "patchAsync", "deleteAsync"] as const) {
+  const original = HttpService.prototype[method] as (this: HttpService, call: { url: string }, ...rest: unknown[]) => unknown;
+  (HttpService.prototype as unknown as Record<string, unknown>)[method] = function (
+    this: HttpService,
+    call: { url: string },
+    ...rest: unknown[]
+  ) {
+    const environment = /manage\.kontent\.ai\/v2\/projects\/([^/?]+)/.exec(call.url)?.[1];
+    if (environment) requestStarts.set(environment, [...(requestStarts.get(environment) ?? []), Date.now()]);
+    return original.call(this, call, ...rest);
+  };
+}
+
+const busiestWindow = (times: readonly number[], windowMs: number) => {
+  let max = 0;
+  for (let i = 0, j = 0; i < times.length; i++) {
+    while ((times[i] as number) - (times[j] as number) >= windowMs) j++;
+    max = Math.max(max, i - j + 1);
+  }
+  return max;
+};
+
+const printRequestRates = (labels: ReadonlyMap<string, string>) => {
+  for (const [environment, times] of requestStarts) {
+    console.log(
+      `  ${labels.get(environment) ?? "Other environment"}: ${times.length} requests; busiest second ${busiestWindow(times, 1000)} (limit 10, target at most 5), busiest minute ${busiestWindow(times, 60_000)} (limit 400, target at most 200)`,
+    );
+  }
+};
+
 const main = async () => {
   const options = parseArgs(process.argv.slice(2));
 
@@ -81,6 +119,16 @@ const main = async () => {
   ]);
   console.log(`Source: ${source.projectName} / ${source.environmentName}`);
   console.log(`Target: ${target.projectName} / ${target.environmentName}`);
+  const labels = new Map([
+    [source.environmentId, `Source (${source.environmentName})`],
+    [target.environmentId, `Target (${target.environmentName})`],
+  ]);
+  process.on("beforeExit", () => {
+    if (!requestStarts.size) return;
+    console.log("\nManagement API requests:");
+    printRequestRates(labels);
+    requestStarts.clear();
+  });
   if (source.environmentId === target.environmentId) throw new Error("Source and target are the same environment.");
 
   const sourceData = await loadSourceData(source.client);
@@ -98,8 +146,10 @@ const main = async () => {
     }),
   );
 
+  const planStarted = Date.now();
   const plan = await runPlan({ source, target, sourceData, pickedIds, languages, depth: options.depth });
   printPlan(plan, options.mode);
+  console.log(`  Preview took ${seconds(planStarted)}`);
   if (options.command === "plan") return;
 
   if (plan.blockers.length) throw new Error("The preview has blockers, so the copy would not be allowed.");
@@ -111,7 +161,9 @@ const main = async () => {
     return;
   }
 
+  const copyStarted = Date.now();
   const publishingRequests = await runCopy({ options, source, target, sourceData, plan });
+  console.log(`  Copy took ${seconds(copyStarted)}`);
   // "Copy as drafts" promises that nothing is published, unpublished or scheduled; the end state can't
   // show a re-publish of unchanged content, so check the requests themselves.
   if (options.mode === "drafts" && publishingRequests.length) {
@@ -125,6 +177,8 @@ FAIL: "Copy as drafts" sent publishing requests: ${publishingRequests.join(", ")
   verify(plan, after, options.mode);
 };
 
+const seconds = (since: number) => `${((Date.now() - since) / 1000).toFixed(1)} s`;
+
 const runPlan = async (params: {
   readonly source: Connection;
   readonly target: Connection;
@@ -133,16 +187,18 @@ const runPlan = async (params: {
   readonly languages: readonly string[];
   readonly depth: number;
   readonly quiet?: boolean;
-}): Promise<Plan> =>
-  buildPlan({
+}): Promise<Plan> => {
+  const started = Date.now();
+  return buildPlan({
     source: params.source,
     target: params.target,
     sourceData: params.sourceData,
     pickedIds: params.pickedIds,
     languageCodenames: params.languages,
     linkedItemsDepth: params.depth,
-    onProgress: (message) => params.quiet || console.log(`  ${message}`),
+    onProgress: (message) => params.quiet || console.log(`  [${seconds(started)}] ${message}`),
   });
+};
 
 const predictionFor = (row: PlanRow, mode: PublishMode) =>
   row.sourcePublishing

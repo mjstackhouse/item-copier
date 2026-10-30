@@ -1,5 +1,6 @@
 import { type ContentTypeElements, ManagementClient } from "@kontent-ai/management-sdk";
 
+import { createPacedHttpService } from "./pacedHttp";
 import { loadWorkflowSteps, type VariantState, type WorkflowSteps } from "./publishing";
 
 export type Connection = {
@@ -103,7 +104,8 @@ export type SourceData = {
 
 /** Creates a client and checks the credentials by loading the environment's name. */
 export const connect = async (environmentId: string, apiKey: string): Promise<Connection> => {
-  const client = new ManagementClient({ environmentId, apiKey });
+  // Paced to stay within half of the environment's rate limits (see pacedHttp.ts).
+  const client = new ManagementClient({ environmentId, apiKey, httpService: createPacedHttpService(environmentId) });
   const info = await client.environmentInformation().toPromise();
 
   return {

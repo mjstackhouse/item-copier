@@ -14,6 +14,71 @@ index ee6fc65..37598c1 100644
  }
  export function geSizeInBytes(data) {
      return data instanceof Blob ? data.size : data.byteLength;
+diff --git a/node_modules/@kontent-ai/migration-toolkit/dist/core/utils/http.utils.js b/node_modules/@kontent-ai/migration-toolkit/dist/core/utils/http.utils.js
+index dec7e1a..e74bf95 100644
+--- a/node_modules/@kontent-ai/migration-toolkit/dist/core/utils/http.utils.js
++++ b/node_modules/@kontent-ai/migration-toolkit/dist/core/utils/http.utils.js
+@@ -1,9 +1,59 @@
+ import { HttpService } from "@kontent-ai/core-sdk";
+ import { match } from "ts-pattern";
+ const rateExceededErrorCode = 10000;
+-export const defaultHttpService = new HttpService({
++// Patched for the item copier: Management API requests start no faster than half of the API's rate limits
++// (5 per second, 200 per minute, which are per environment), so a copy leaves room for other traffic in the
++// environments. Asset file downloads aren't Management API requests and aren't paced. The retry strategy below
++// still applies to a request that hits the rate limit anyway.
++const pacedLimits = { perSecond: 5, perMinute: 200 };
++// Slightly longer windows, so small timing differences can't push a window over the limit.
++const secondMs = 1100;
++const minuteMs = 61000;
++const createRateLimiter = () => {
++    const started = [];
++    let queue = Promise.resolve();
++    const waitMs = (now) => {
++        while (started.length && now - started[0] >= minuteMs) started.shift();
++        const lastSecond = started.filter((t) => now - t < secondMs);
++        if (lastSecond.length >= pacedLimits.perSecond) return secondMs - (now - lastSecond[0]);
++        if (started.length >= pacedLimits.perMinute) return minuteMs - (now - started[0]);
++        return 0;
++    };
++    return () => {
++        const turn = queue.then(async () => {
++            for (let wait = waitMs(Date.now()); wait > 0; wait = waitMs(Date.now())) {
++                await new Promise((resolve) => setTimeout(resolve, wait));
++            }
++            started.push(Date.now());
++        });
++        queue = turn;
++        return turn;
++    };
++};
++// One pacer per environment, shared with the item copier app through a registry on globalThis, so the app's
++// own requests and the toolkit's together stay within the limits.
++const registryKey = Symbol.for("item-copier.rate-limiters");
++const waitForTurn = (url) => {
++    const environmentId = /manage\.kontent\.ai\/v2\/projects\/([^/?]+)/.exec(url)?.[1] ?? "unknown";
++    const registry = (globalThis[registryKey] ??= new Map());
++    if (!registry.has(environmentId)) registry.set(environmentId, createRateLimiter());
++    return registry.get(environmentId)();
++};
++const baseHttpService = new HttpService({
+     logErrorsToConsole: false,
+ });
++const paced = (fn) => async (call, options) => {
++    if (call.url.includes("manage.kontent.ai")) await waitForTurn(call.url);
++    return fn(call, options);
++};
++export const defaultHttpService = {
++    getAsync: paced((call, options) => baseHttpService.getAsync(call, options)),
++    postAsync: paced((call, options) => baseHttpService.postAsync(call, options)),
++    putAsync: paced((call, options) => baseHttpService.putAsync(call, options)),
++    patchAsync: paced((call, options) => baseHttpService.patchAsync(call, options)),
++    deleteAsync: paced((call, options) => baseHttpService.deleteAsync(call, options)),
++    createCancelToken: () => baseHttpService.createCancelToken(),
++};
+ export const defaultRetryStrategy = {
+     addJitter: true,
+     canRetryError: (err) => {
 diff --git a/node_modules/@kontent-ai/migration-toolkit/dist/core/utils/management-client-utils.js b/node_modules/@kontent-ai/migration-toolkit/dist/core/utils/management-client-utils.js
 index dc23ee0..6c0c188 100644
 --- a/node_modules/@kontent-ai/migration-toolkit/dist/core/utils/management-client-utils.js

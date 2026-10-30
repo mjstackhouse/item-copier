@@ -68,6 +68,17 @@ If both print a status code instead of a CORS error, you are clear. Then try a r
 | `src/components/` | One component per step, `LanguagePicker.tsx` for choosing the languages to copy, and `ui.tsx` for the shared message and tooltip pieces |
 | `src/styles.css` | The visual style, matching the author's other Kontent.ai tools (export tool, content localization auditor, usage insights, asset description auditor): the same colors, Inter font, gradient title bar, pill buttons and inputs, and two-part messages |
 
+## Request rate
+
+The Management API allows 10 requests per second and 400 per minute per environment, shared by every API key and integration using that environment. This tool stays within half of both (5 per second, 200 per minute), so it doesn't crowd out other work in the environments:
+
+- `src/lib/pacedHttp.ts` paces the app's own requests (search, preview) through a custom HTTP service for the Management SDK, with one pacer per environment.
+- A patch to the toolkit's HTTP layer (in `patches/`) paces the toolkit's Management API requests during a copy, using the same per-environment pacer, so a preview followed straight away by a copy stays within the limits too. Asset file downloads aren't paced; they don't go to the Management API.
+- The SDK's and the toolkit's retries still apply, so a request that hits the limit anyway (because of other traffic) is retried with back-off.
+- The preview checks the target in bulk (one request per item to see whether it exists, then one per 100 variants) and makes at most two checks at a time.
+
+With real environments, a preview of 50 items in 24 languages (65 variants) took about 35 seconds, and copying them about 3 minutes, with the busiest second at 5 requests and the busiest minute at 200 in both environments (measured by `scripts/real-env-test.ts`).
+
 ## Known limitations and next steps
 
 - **Several languages in one run.** The toolkit takes a list of item and language pairs, so all chosen languages are copied in one run, and each content item is created once. Preview and copy time grow with the number of languages. Non-localizable elements (shared by all of an item's variants) copy correctly in one run: each variant and version keeps its value.
@@ -108,4 +119,4 @@ A scheduled item (a published version plus a newer version scheduled to publish,
 
 The workflow step fallback was tested with a step ("AI review") added to the source's Default workflow but not the target's: the preview showed the note, and the copied draft landed in the target's Draft step. A second run, with the item published and a newer version in "AI review", published the item in the target and put the newer draft in the Draft step.
 
-Still untested on real data: large selections.
+A large selection (50 items in 24 languages, 65 variants, 54 of them new) copied correctly except for two variants, which exposed cases the preview doesn't check yet: an item in a workflow that the target's workflow scopes don't allow for its content type, and an archived item in a workflow whose steps can't move to Archived.
