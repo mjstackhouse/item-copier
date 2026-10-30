@@ -37,6 +37,53 @@ export type TaxonomyElementInfo = {
   readonly taxonomyGroupId: string;
 };
 
+/** A content type element that holds content, with snippet elements flattened in (guidelines left out). */
+export type TypeElementInfo = { readonly codename: string; readonly name: string; readonly type: string };
+
+/** A taxonomy term, with the group it belongs to. */
+export type TaxonomyTermInfo = {
+  readonly codename: string;
+  readonly name: string;
+  readonly groupCodename: string;
+  readonly groupName: string;
+};
+
+type SnippetLike = { readonly elements: readonly ContentTypeElements.ContentTypeElementModel[] };
+
+/**
+ * The elements of a content type the way the toolkit sees them: snippet elements are flattened in,
+ * and guidelines (which hold no content) are left out.
+ */
+export const flattenTypeElements = (
+  elements: readonly ContentTypeElements.ContentTypeElementModel[],
+  snippetsById: ReadonlyMap<string, SnippetLike>,
+): TypeElementInfo[] =>
+  elements.flatMap((e): TypeElementInfo[] => {
+    if (e.type === "snippet") {
+      const snippet = e.snippet.id ? snippetsById.get(e.snippet.id) : undefined;
+      return snippet ? flattenTypeElements(snippet.elements, snippetsById) : [];
+    }
+    if (e.type === "guidelines" || !e.codename) return [];
+    return [{ codename: e.codename, name: ("name" in e && e.name) || e.codename, type: e.type }];
+  });
+
+export const flattenTaxonomyTerms = (
+  groups: readonly { id: string; codename: string; name: string; terms: readonly unknown[] }[],
+): Map<string, TaxonomyTermInfo> => {
+  const terms = new Map<string, TaxonomyTermInfo>();
+  type Term = { id: string; codename: string; name: string; terms: readonly Term[] };
+  for (const group of groups) {
+    const add = (list: readonly Term[]) => {
+      for (const term of list) {
+        terms.set(term.id, { codename: term.codename, name: term.name, groupCodename: group.codename, groupName: group.name });
+        add(term.terms);
+      }
+    };
+    add(group.terms as readonly Term[]);
+  }
+  return terms;
+};
+
 export type SourceData = {
   readonly languages: readonly Language[];
   readonly workflowSteps: WorkflowSteps;
@@ -46,6 +93,10 @@ export type SourceData = {
   /** Content type id -> its taxonomy elements, including those from snippets. */
   readonly taxonomyElementsByType: ReadonlyMap<string, readonly TaxonomyElementInfo[]>;
   readonly typesById: ReadonlyMap<string, ContentTypeInfo>;
+  /** Content type id -> its content elements, including those from snippets. */
+  readonly typeElements: ReadonlyMap<string, readonly TypeElementInfo[]>;
+  /** Taxonomy term id -> the term and its group, across all taxonomy groups. */
+  readonly taxonomyTerms: ReadonlyMap<string, TaxonomyTermInfo>;
   /** Element id -> element type ("modular_content", "rich_text", ...), across all types and snippets. */
   readonly elementTypes: ReadonlyMap<string, string>;
 };
@@ -111,6 +162,8 @@ export const loadSourceData = async (client: ManagementClient): Promise<SourceDa
       ]),
     ),
     typesById: new Map(types.data.items.map((t) => [t.id, { id: t.id, codename: t.codename, name: t.name }])),
+    typeElements: new Map(types.data.items.map((t) => [t.id, flattenTypeElements(t.elements, snippetsById)])),
+    taxonomyTerms: flattenTaxonomyTerms(taxonomies.data.items),
     elementTypes,
   };
 };

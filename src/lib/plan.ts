@@ -1,4 +1,12 @@
-import { type Connection, isNotFound, mapWithLimit, type SourceData } from "./kontent";
+import {
+  type Connection,
+  flattenTaxonomyTerms,
+  flattenTypeElements,
+  isNotFound,
+  mapWithLimit,
+  type SourceData,
+  type TypeElementInfo,
+} from "./kontent";
 import { expandWithLinkedItems, type PlannedItem } from "./linkedItems";
 import {
   findStep,
@@ -94,12 +102,19 @@ export const buildPlan = async (params: {
 
   params.onProgress("Checking the target environment");
 
-  const [targetLanguages, targetTypes, targetSteps, targetCollections] = await Promise.all([
-    target.client.listLanguages().toAllPromise(),
-    target.client.listContentTypes().toAllPromise(),
-    loadWorkflowSteps(target.client),
-    target.client.listCollections().toPromise(),
-  ]);
+  const [targetLanguages, targetTypes, targetSteps, targetCollections, targetSnippets, targetTaxonomies] =
+    await Promise.all([
+      target.client.listLanguages().toAllPromise(),
+      target.client.listContentTypes().toAllPromise(),
+      loadWorkflowSteps(target.client),
+      target.client.listCollections().toPromise(),
+      target.client.listContentTypeSnippets().toAllPromise(),
+      target.client.listTaxonomies().toAllPromise(),
+    ]);
+  const targetSnippetsById = new Map(targetSnippets.data.items.map((s) => [s.id, s]));
+  const targetElementsByType = new Map(
+    targetTypes.data.items.map((t) => [t.codename, flattenTypeElements(t.elements, targetSnippetsById)]),
+  );
 
   for (const languageCodename of languageCodenames) {
     const targetLanguage = targetLanguages.data.items.find((l) => l.codename === languageCodename);
@@ -131,6 +146,13 @@ export const buildPlan = async (params: {
     ...checkTaxonomyGroups(sourceData, known),
     ...checkCollections(sourceData, known, new Set(targetCollections.data.collections.map((c) => c.codename))),
     ...checkMissingWorkflows(sourceData.workflowSteps, targetSteps, known),
+    ...checkElements(sourceData, known, targetElementsByType),
+    ...checkTaxonomyTerms(
+      sourceData,
+      known,
+      flattenTaxonomyTerms(targetTaxonomies.data.items),
+      new Set(targetTaxonomies.data.items.map((g) => g.codename)),
+    ),
   );
   const notes = describeStepFallbacks(sourceData.workflowSteps, targetSteps, known);
 
@@ -353,4 +375,77 @@ const landingSteps = (
     latestStepName: (targetStepFor(targetSteps, workflow, sourceStep) ?? sourceStep).name,
     firstStepName: sourceFirst ? (targetStepFor(targetSteps, workflow, sourceFirst) ?? sourceFirst).name : "",
   };
+};
+
+/**
+ * The toolkit writes each element by codename into the target's content type of the same codename, and fails
+ * the variant when the element is missing there or holds a different kind of value. Extra elements in the
+ * target are fine.
+ */
+const checkElements = (
+  sourceData: SourceData,
+  items: readonly PlannedItem[],
+  targetElementsByType: ReadonlyMap<string, readonly TypeElementInfo[]>,
+): string[] =>
+  unique(items.map((p) => p.item.typeId)).flatMap((typeId) => {
+    const type = sourceData.typesById.get(typeId);
+    const targetElements = type && targetElementsByType.get(type.codename);
+    // A content type missing in the target is reported by the content type check.
+    if (!type || !targetElements) return [];
+    const targetTypes = new Map(targetElements.map((e) => [e.codename, e.type]));
+    const problems = (sourceData.typeElements.get(typeId) ?? []).flatMap((e) => {
+      const targetType = targetTypes.get(e.codename);
+      if (!targetType) return [`it has no "${e.name}" element (codename ${e.codename})`];
+      if (targetType !== e.type) {
+        return [
+          `its "${e.name}" element (codename ${e.codename}) is ${elementTypeLabel(targetType)}, not ${elementTypeLabel(e.type)} as in the source`,
+        ];
+      }
+      return [];
+    });
+    if (!problems.length) return [];
+    const affected = items.filter((p) => p.item.typeId === typeId);
+    return [
+      `The target's "${type.name}" content type doesn't match the source: ${problems.join("; ")}. It is used by: ${namesOf(affected)}. Update the content type in the target (for example with data-ops sync), then preview again.`,
+    ];
+  });
+
+const elementTypeLabels: Record<string, string> = {
+  modular_content: "a linked items element",
+  subpages: "a subpages element",
+  rich_text: "a rich text element",
+  url_slug: "a URL slug element",
+  date_time: "a date & time element",
+  multiple_choice: "a multiple choice element",
+  custom: "a custom element",
+  asset: "an asset element",
+};
+
+const elementTypeLabel = (type: string) => elementTypeLabels[type] ?? `a ${type} element`;
+
+/** The toolkit writes taxonomy terms by codename; a term missing in the target fails the variant. */
+const checkTaxonomyTerms = (
+  sourceData: SourceData,
+  items: readonly PlannedItem[],
+  targetTerms: ReadonlyMap<string, { readonly codename: string; readonly groupCodename: string }>,
+  targetGroups: ReadonlySet<string>,
+): string[] => {
+  const targetKeys = new Set([...targetTerms.values()].map((t) => `${t.groupCodename}/${t.codename}`));
+  // Group codename -> missing terms, and the items that use them.
+  const missing = new Map<string, { groupName: string; terms: Set<string>; items: PlannedItem[] }>();
+  for (const p of items) {
+    for (const termId of p.termIds) {
+      const term = sourceData.taxonomyTerms.get(termId);
+      if (!term || targetKeys.has(`${term.groupCodename}/${term.codename}`)) continue;
+      const entry = missing.get(term.groupCodename) ?? { groupName: term.groupName, terms: new Set(), items: [] };
+      entry.terms.add(term.name);
+      if (!entry.items.includes(p)) entry.items.push(p);
+      missing.set(term.groupCodename, entry);
+    }
+  }
+  return [...missing.entries()].map(([groupCodename, { groupName, terms, items: affected }]) =>
+    targetGroups.has(groupCodename)
+      ? `The target's "${groupName}" taxonomy group is missing these terms: ${[...terms].join(", ")}. They are used by: ${namesOf(affected)}. Add the terms in the target (for example with data-ops sync), then preview again.`
+      : `The target has no "${groupName}" taxonomy group (codename ${groupCodename}), whose terms are used by: ${namesOf(affected)}. Add it in the target (for example with data-ops sync), then preview again.`,
+  );
 };

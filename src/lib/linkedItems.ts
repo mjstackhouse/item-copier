@@ -14,6 +14,8 @@ export type PlannedItem = {
   readonly linkedFrom?: string;
   /** Workflow step and schedule of the source variant. */
   readonly state: VariantState;
+  /** Ids of the taxonomy terms the variant uses, including inside rich-text components. */
+  readonly termIds: readonly string[];
 };
 
 export type LinkedItemsResult = {
@@ -63,6 +65,26 @@ export const findReferencedItemIds = (
     }
   }
 
+  return ids;
+};
+
+/** Finds the ids of taxonomy terms selected in a variant's elements, including inside rich-text components. */
+export const findTaxonomyTermIds = (
+  elements: readonly VariantElement[],
+  elementTypes: ReadonlyMap<string, string>,
+): Set<string> => {
+  const ids = new Set<string>();
+  for (const element of elements) {
+    const type = element.element.id ? elementTypes.get(element.element.id) : undefined;
+    if (type === "taxonomy" && Array.isArray(element.value)) {
+      for (const term of element.value as { id?: string }[]) {
+        if (term.id) ids.add(term.id);
+      }
+    }
+    for (const component of element.components ?? []) {
+      for (const id of findTaxonomyTermIds(component.elements, elementTypes)) ids.add(id);
+    }
+  }
   return ids;
 };
 
@@ -134,7 +156,15 @@ const expandInLanguage = async (params: {
         continue;
       }
 
-      planned.push({ id, item: entry.item, languageCodename, depth, linkedFrom, state: entry.state });
+      planned.push({
+        id,
+        item: entry.item,
+        languageCodename,
+        depth,
+        linkedFrom,
+        state: entry.state,
+        termIds: [...findTaxonomyTermIds(entry.elements, params.elementTypes)],
+      });
       if (depth < params.maxDepth) {
         for (const refId of findReferencedItemIds(entry.elements, params.elementTypes)) {
           if (!seen.has(refId)) {
