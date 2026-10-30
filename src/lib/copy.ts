@@ -19,6 +19,12 @@ export type CopySummary = {
    * those without reporting an error, so they are found by comparing what was read with what was requested.
    */
   readonly itemsNotRead: readonly string[];
+  /**
+   * Assets (as "codename (folder)") placed in the target's root folder because their source folder
+   * doesn't exist in the target. Cloning an environment without content items and assets doesn't copy
+   * asset folders, and the toolkit fails an asset whose folder is missing.
+   */
+  readonly assetsMovedToRoot: readonly string[];
   readonly errors: readonly string[];
 };
 
@@ -129,15 +135,19 @@ export const copyItems = async (params: {
       .map((v) => key(v.itemCodename, v.languageCodename))
       .filter((k) => !read.has(k));
 
+    const published = params.publishMode === "drafts" ? toDrafts(migrationData, params.sourceWorkflowSteps) : migrationData;
+    const { data, movedToRoot } = await withExistingFolders(published, params.target);
+    if (params.signal.aborted) return { state: "cancelled" };
+
     phase = "import";
     const importResult = await importAsync({
       environmentId: params.target.environmentId,
       apiKey: params.target.apiKey,
       logger,
-      data: params.publishMode === "drafts" ? toDrafts(migrationData, params.sourceWorkflowSteps) : migrationData,
+      data,
     });
 
-    const summary = summarize(importResult, itemsNotRead);
+    const summary = summarize(importResult, itemsNotRead, movedToRoot);
     return summary.variantsCancelled ? { state: "cancelled", summary } : { state: "finished", summary };
   } catch (error) {
     // Thrown before any import step ran (the export, or reading the target before writing).
@@ -176,7 +186,42 @@ const toDrafts = (data: MigrationData, steps: WorkflowSteps): MigrationData => {
   };
 };
 
-const summarize = (importResult: Awaited<ReturnType<typeof importAsync>>, itemsNotRead: readonly string[]): CopySummary => {
+/**
+ * The toolkit puts each asset in the target folder with the same codename as in the source, and the
+ * Management API rejects the asset if that folder doesn't exist. This happens after cloning an environment
+ * without content items and assets, which doesn't copy asset folders. Such assets go to the root folder
+ * instead (by leaving the folder out), and are reported in the summary.
+ */
+const withExistingFolders = async (
+  data: MigrationData,
+  target: Connection,
+): Promise<{ readonly data: MigrationData; readonly movedToRoot: readonly string[] }> => {
+  if (!data.assets.some((a) => a.folder)) return { data, movedToRoot: [] };
+
+  const folders = (await target.client.listAssetFolders().toPromise()).data.items;
+  const codenames = new Set<string>();
+  const collect = (list: readonly { codename: string; folders: readonly unknown[] }[]) => {
+    for (const folder of list) {
+      codenames.add(folder.codename);
+      collect(folder.folders as typeof list);
+    }
+  };
+  collect(folders);
+
+  const movedToRoot: string[] = [];
+  const assets = data.assets.map((asset) => {
+    if (!asset.folder?.codename || codenames.has(asset.folder.codename)) return asset;
+    movedToRoot.push(`${asset.codename} (${asset.folder.codename})`);
+    return { ...asset, folder: undefined };
+  });
+  return { data: { ...data, assets }, movedToRoot };
+};
+
+const summarize = (
+  importResult: Awaited<ReturnType<typeof importAsync>>,
+  itemsNotRead: readonly string[],
+  assetsMovedToRoot: readonly string[],
+): CopySummary => {
   const { contentItems, languageVariants, uploadedAssets, editedAssets } = importResult;
   // Each result is "valid", "error" or "404"; anything other than "valid" counts as failed,
   // unless it was skipped because of cancelling.
@@ -193,6 +238,7 @@ const summarize = (importResult: Awaited<ReturnType<typeof importAsync>>, itemsN
     assetsUploaded: uploadedAssets.filter((r) => r.state === "valid").length,
     assetsUpdated: editedAssets.filter((r) => r.state === "valid").length,
     itemsNotRead,
+    assetsMovedToRoot,
     errors: failed.map((r) => describeError(r)),
   };
 };

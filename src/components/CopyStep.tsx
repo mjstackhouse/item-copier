@@ -85,7 +85,9 @@ export const CopyStep = ({ source, target, selection, plan, publishMode, sourceW
       )}
 
       {summary && (
-        <Message kind={summary.errors.length || summary.itemsNotRead.length ? "warning" : "ok"}>
+        <Message
+          kind={summary.errors.length || summary.itemsNotRead.length || summary.assetsMovedToRoot.length ? "warning" : "ok"}
+        >
           <p>
             Items: {summary.itemsOk} copied{summary.itemsFailed ? `, ${summary.itemsFailed} failed` : ""}. Language
             variants: {summary.variantsOk} copied
@@ -97,6 +99,13 @@ export const CopyStep = ({ source, target, selection, plan, publishMode, sourceW
               {summary.itemsNotRead.length} language variant(s) could not be read from the source and were not copied:{" "}
               {summary.itemsNotRead.join(", ")}. Check them in the source, for example for a workflow step, collection
               or element value the copy can't handle.
+            </p>
+          )}
+          {summary.assetsMovedToRoot.length > 0 && (
+            <p>
+              {summary.assetsMovedToRoot.length} asset(s) were placed in the root folder, because their folder doesn't
+              exist in the target: {summary.assetsMovedToRoot.join(", ")}. Move them, or create the folders and copy
+              again.
             </p>
           )}
           {summary.errors.length > 0 && (
