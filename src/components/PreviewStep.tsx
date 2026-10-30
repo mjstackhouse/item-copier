@@ -98,6 +98,18 @@ export const PreviewStep = ({
         })
       : { outcome: "", effects: [] },
   }));
+  // "Copy as drafts" keeps archived items archived, but archiving a variant that is live in the target
+  // would take it offline, which that option promises not to do.
+  const archivedOverLive =
+    publishMode === "drafts"
+      ? plan.rows.filter((r) => r.sourcePublishing?.stepKind === "archived" && r.targetPublishing?.hasPublishedVersion)
+      : [];
+  const modeBlockers = archivedOverLive.length
+    ? [
+        `These items are archived in the source but live in ${target.environmentName}. Copying them as archived would take them offline, which "Copy as drafts" doesn't do: ${[...new Set(archivedOverLive.map((r) => r.item.name))].join(", ")}. Choose "Match the source", or leave these items out.`,
+      ]
+    : [];
+  const blockers = [...plan.blockers, ...modeBlockers];
   const overwrites = plan.rows.filter((r) => r.targetStatus === "overwrites existing").length;
   const countEffect = (effect: LiveEffect) => rows.filter((r) => r.prediction.effects.includes(effect)).length;
   const goesLive = countEffect("goes live");
@@ -150,7 +162,7 @@ export const PreviewStep = ({
         {languageSummary}). Assets they use are copied too.
       </p>
 
-      {plan.blockers.map((b) => (
+      {blockers.map((b) => (
         <Message key={b} kind="error">
           {b}
         </Message>
@@ -326,7 +338,7 @@ export const PreviewStep = ({
           type="button"
           className="btn continue-btn"
           disabled={
-            plan.blockers.length > 0 ||
+            blockers.length > 0 ||
             (confirmParts.length > 0 && !confirmed) ||
             (plan.deletedReferenceCount > 0 && !selection.skipMissingReferences)
           }

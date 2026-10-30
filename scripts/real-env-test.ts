@@ -250,7 +250,11 @@ const runCopy = async (params: {
   const result = await copyItems({
     source: params.source,
     target: params.target,
-    variants: plan.rows.map((r) => ({ itemCodename: r.item.codename, languageCodename: r.languageCodename })),
+    variants: plan.rows.map((r) => ({
+      itemCodename: r.item.codename,
+      languageCodename: r.languageCodename,
+      targetWorkflowCodename: r.targetWorkflowCodename,
+    })),
     skipMissingReferences: options.skipDeleted,
     publishMode: options.mode,
     sourceWorkflowSteps: params.sourceData.workflowSteps,

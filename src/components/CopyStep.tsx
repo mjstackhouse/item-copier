@@ -34,7 +34,11 @@ export const CopyStep = ({ source, target, selection, plan, publishMode, sourceW
     copyItems({
       source,
       target,
-      variants: plan.rows.map((r) => ({ itemCodename: r.item.codename, languageCodename: r.languageCodename })),
+      variants: plan.rows.map((r) => ({
+        itemCodename: r.item.codename,
+        languageCodename: r.languageCodename,
+        targetWorkflowCodename: r.targetWorkflowCodename,
+      })),
       skipMissingReferences: selection.skipMissingReferences,
       publishMode,
       sourceWorkflowSteps,

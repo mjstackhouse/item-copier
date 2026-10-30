@@ -9,8 +9,10 @@ import {
 } from "./kontent";
 import { expandWithLinkedItems, type PlannedItem } from "./linkedItems";
 import {
+  canArchiveFromFirstStep,
   findStep,
   firstSteps,
+  requiredWorkflow,
   targetStepFor,
   type WorkflowStepInfo,
   getPublishingState,
@@ -31,6 +33,8 @@ export type PlanRow = PlannedItem & {
   readonly sourcePublishing?: PublishingState;
   /** Publishing state of the existing target variant; undefined when the target has none. */
   readonly targetPublishing?: PublishingState;
+  /** The workflow the variant goes to in the target: the source's, or the one the target's scopes require. */
+  readonly targetWorkflowCodename: string;
   /** The target step the latest version lands in when it is a draft, after any step fallback. */
   readonly latestStepName: string;
   /** The target step "Copy as drafts" uses for published, scheduled and archived versions. */
@@ -155,7 +159,24 @@ export const buildPlan = async (params: {
       new Set(targetTaxonomies.data.items.map((g) => g.codename)),
     ),
   );
-  const notes = describeStepFallbacks(sourceData.workflowSteps, targetSteps, known);
+  // The workflow each variant goes to in the target. A workflow missing in the target is blocked above;
+  // otherwise the target's workflow scopes decide, which usually means the source's workflow.
+  const targetWorkflowNames = new Set([...targetSteps.values()].map((s) => s.workflowCodename));
+  const targetTypeIds = new Map(targetTypes.data.items.map((t) => [t.codename, t.id]));
+  const targetCollectionIds = new Map(targetCollections.data.collections.map((c) => [c.codename, c.id]));
+  const targetWorkflowOf = (p: PlannedItem): string => {
+    const step = findStep(sourceData.workflowSteps, p.state);
+    if (!step) return "";
+    if (!targetWorkflowNames.has(step.workflowCodename)) return step.workflowCodename;
+    const required = requiredWorkflow(
+      targetSteps,
+      targetTypeIds.get(sourceData.typesById.get(p.item.typeId)?.codename ?? "") ?? "",
+      targetCollectionIds.get(sourceData.collectionCodenames.get(p.item.collectionId) ?? "") ?? "",
+    );
+    return required?.codename ?? step.workflowCodename;
+  };
+  blockers.push(...checkArchiving(sourceData.workflowSteps, targetSteps, known, targetWorkflowOf));
+  const notes = describeWorkflowLanding(sourceData.workflowSteps, targetSteps, known, targetWorkflowOf);
 
   const sourceFirstSteps = firstSteps(sourceData.workflowSteps);
 
@@ -192,7 +213,8 @@ export const buildPlan = async (params: {
       targetStatus: targetState.status,
       sourcePublishing: sourceState,
       targetPublishing: targetState.publishing,
-      ...landingSteps(sourceStep, sourceFirstSteps, targetSteps),
+      targetWorkflowCodename: targetWorkflowOf(planned),
+      ...landingSteps(sourceStep, sourceFirstSteps, targetSteps, targetWorkflowOf(planned)),
     };
   });
 
@@ -361,29 +383,60 @@ const checkMissingWorkflows = (
 };
 
 /**
- * Steps that exist in the source's workflow but not in the target's workflow of the same codename (for
- * example a step added after the environment was cloned). The copy moves those variants to the target
- * workflow's step of the same kind, or its first step, and the preview says so.
+ * Where variants land when it isn't the same workflow and step as in the source: a different workflow because
+ * the target's workflow scopes require it for their content type and collection (for example an older item
+ * that stayed in the default workflow after a scope was added), or a different step because the target's
+ * workflow lacks theirs (for example a step added after the environment was cloned). The copy moves them
+ * (see `fitStepsToTarget` in copy.ts); the preview says so.
  */
-const describeStepFallbacks = (
+const describeWorkflowLanding = (
   sourceSteps: WorkflowSteps,
   targetSteps: WorkflowSteps,
   items: readonly PlannedItem[],
+  targetWorkflowOf: (p: PlannedItem) => string,
 ): string[] => {
   const moves = new Map<string, { from: WorkflowStepInfo; to: WorkflowStepInfo; items: PlannedItem[] }>();
   for (const p of items) {
     const from = findStep(sourceSteps, p.state);
-    const to = from && targetStepFor(targetSteps, from.workflowCodename, from);
-    if (!from || !to || to.codename === from.codename) continue;
-    const key = `${from.workflowCodename}/${from.codename}`;
+    const to = from && targetStepFor(targetSteps, targetWorkflowOf(p), from);
+    if (!from || !to || (to.workflowCodename === from.workflowCodename && to.codename === from.codename)) continue;
+    const key = `${from.workflowCodename}/${from.codename}>${to.workflowCodename}/${to.codename}`;
     const move = moves.get(key) ?? { from, to, items: [] };
     move.items.push(p);
     moves.set(key, move);
   }
-  return [...moves.values()].map(
-    ({ from, to, items: moved }) =>
-      `The target's "${from.workflowName}" workflow has no "${from.name}" step, so ${moved.length} variant(s) in it will go to its "${to.name}" step instead: ${namesOf(moved)}.`,
+  return [...moves.values()].map(({ from, to, items: moved }) =>
+    to.workflowCodename !== from.workflowCodename
+      ? `In the target, the workflow scopes require the "${to.workflowName}" workflow for these items' content type and collection, so ${moved.length} variant(s) in the "${from.workflowName}" workflow will go to its "${to.name}" step instead: ${namesOf(moved)}.`
+      : `The target's "${from.workflowName}" workflow has no "${from.name}" step, so ${moved.length} variant(s) in it will go to its "${to.name}" step instead: ${namesOf(moved)}.`,
   );
+};
+
+/**
+ * Archiving is a deliberate decision, so archived items are only copied as archived. The toolkit saves the
+ * variant in the workflow's first step and then moves it to Archived; when the target's workflow doesn't
+ * allow that move, the copy is blocked rather than leaving the item as a draft.
+ */
+const checkArchiving = (
+  sourceSteps: WorkflowSteps,
+  targetSteps: WorkflowSteps,
+  items: readonly PlannedItem[],
+  targetWorkflowOf: (p: PlannedItem) => string,
+): string[] => {
+  const targetWorkflows = new Set([...targetSteps.values()].map((s) => s.workflowCodename));
+  const stuck = new Map<string, PlannedItem[]>();
+  for (const p of items) {
+    if (findStep(sourceSteps, p.state)?.kind !== "archived") continue;
+    const workflow = targetWorkflowOf(p);
+    // A workflow missing in the target is reported by the workflow check.
+    if (!targetWorkflows.has(workflow) || canArchiveFromFirstStep(targetSteps, workflow)) continue;
+    stuck.set(workflow, [...(stuck.get(workflow) ?? []), p]);
+  }
+  return [...stuck.entries()].map(([workflow, archived]) => {
+    const steps = [...targetSteps.values()].filter((s) => s.workflowCodename === workflow);
+    const first = steps.find((s) => s.kind === "draft");
+    return `These items are archived in the source, but in the target's "${steps[0]?.workflowName ?? workflow}" workflow the first step ("${first?.name ?? "?"}") can't move to Archived, so they can't be copied as archived: ${namesOf(archived)}. Allow that move in the target's workflow, or leave these items out (for linked items, lower the linked items depth).`;
+  });
 };
 
 /** Where the variant's versions land in the target, for the preview's predictions. */
@@ -391,13 +444,13 @@ const landingSteps = (
   sourceStep: WorkflowStepInfo | undefined,
   sourceFirstSteps: ReadonlyMap<string, WorkflowStepInfo>,
   targetSteps: WorkflowSteps,
+  targetWorkflow: string,
 ): { readonly latestStepName: string; readonly firstStepName: string } => {
   if (!sourceStep) return { latestStepName: "", firstStepName: "" };
-  const workflow = sourceStep.workflowCodename;
-  const sourceFirst = sourceFirstSteps.get(workflow);
+  const sourceFirst = sourceFirstSteps.get(sourceStep.workflowCodename);
   return {
-    latestStepName: (targetStepFor(targetSteps, workflow, sourceStep) ?? sourceStep).name,
-    firstStepName: sourceFirst ? (targetStepFor(targetSteps, workflow, sourceFirst) ?? sourceFirst).name : "",
+    latestStepName: (targetStepFor(targetSteps, targetWorkflow, sourceStep) ?? sourceStep).name,
+    firstStepName: sourceFirst ? (targetStepFor(targetSteps, targetWorkflow, sourceFirst) ?? sourceFirst).name : "",
   };
 };
 

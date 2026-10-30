@@ -68,7 +68,12 @@ export const copyItems = async (params: {
   readonly source: Connection;
   readonly target: Connection;
   /** The language variants to copy; the toolkit copies all of them in one run. */
-  readonly variants: readonly { readonly itemCodename: string; readonly languageCodename: string }[];
+  readonly variants: readonly {
+    readonly itemCodename: string;
+    readonly languageCodename: string;
+    /** The workflow to put the variant in, when the target requires a different one than the source's. */
+    readonly targetWorkflowCodename?: string;
+  }[];
   readonly skipMissingReferences: boolean;
   readonly publishMode: PublishMode;
   /** The source environment's workflow steps, needed to turn versions into drafts. */
@@ -136,7 +141,17 @@ export const copyItems = async (params: {
       .filter((k) => !read.has(k));
 
     const published = params.publishMode === "drafts" ? toDrafts(migrationData, params.sourceWorkflowSteps) : migrationData;
-    const fitted = fitStepsToTarget(published, params.sourceWorkflowSteps, await loadWorkflowSteps(params.target.client));
+    const targetWorkflows = new Map(
+      params.variants.flatMap((v) =>
+        v.targetWorkflowCodename ? [[`${v.itemCodename}/${v.languageCodename}`, v.targetWorkflowCodename] as const] : [],
+      ),
+    );
+    const fitted = fitStepsToTarget(
+      published,
+      params.sourceWorkflowSteps,
+      await loadWorkflowSteps(params.target.client),
+      targetWorkflows,
+    );
     const { data, movedToRoot } = await withExistingFolders(fitted, params.target);
     if (params.signal.aborted) return { state: "cancelled" };
 
@@ -178,8 +193,11 @@ const toDrafts = (data: MigrationData, steps: WorkflowSteps): MigrationData => {
       const drafts = item.versions.filter((v) => stepKind(workflow, v.workflow_step.codename) !== "published");
       const versions = (drafts.length ? drafts : item.versions).map((v) => ({
         ...v,
-        workflow_step:
-          stepKind(workflow, v.workflow_step.codename) === "draft" || !firstStep ? v.workflow_step : { codename: firstStep },
+        // Archived stays archived: archiving is a deliberate decision (the preview blocks the cases where
+        // that isn't possible).
+        workflow_step: ["draft", "archived"].includes(stepKind(workflow, v.workflow_step.codename)) || !firstStep
+          ? v.workflow_step
+          : { codename: firstStep },
         schedule: undefined,
       }));
       return { ...item, versions, keepTargetPublished: true };
@@ -193,18 +211,25 @@ const toDrafts = (data: MigrationData, steps: WorkflowSteps): MigrationData => {
  * versions move to the target workflow's step of the same kind, or its first step (see `targetStepFor`);
  * the preview tells the user. A missing workflow is left alone: the preview blocks the copy for it.
  */
-const fitStepsToTarget = (data: MigrationData, sourceSteps: WorkflowSteps, targetSteps: WorkflowSteps): MigrationData => ({
+const fitStepsToTarget = (
+  data: MigrationData,
+  sourceSteps: WorkflowSteps,
+  targetSteps: WorkflowSteps,
+  /** "codename/language" -> the workflow the target requires, when it differs from the source's (from the preview). */
+  targetWorkflows: ReadonlyMap<string, string>,
+): MigrationData => ({
   ...data,
   items: data.items.map((item) => {
-    const workflow = item.system.workflow.codename;
+    const sourceWorkflow = item.system.workflow.codename;
+    const workflow = targetWorkflows.get(`${item.system.codename}/${item.system.language.codename}`) ?? sourceWorkflow;
     const versions = item.versions.map((v) => {
       const kind =
-        [...sourceSteps.values()].find((s) => s.workflowCodename === workflow && s.codename === v.workflow_step.codename)
+        [...sourceSteps.values()].find((s) => s.workflowCodename === sourceWorkflow && s.codename === v.workflow_step.codename)
           ?.kind ?? "draft";
       const step = targetStepFor(targetSteps, workflow, { codename: v.workflow_step.codename, kind });
       return step && step.codename !== v.workflow_step.codename ? { ...v, workflow_step: { codename: step.codename } } : v;
     });
-    return { ...item, versions };
+    return { ...item, system: { ...item.system, workflow: { codename: workflow } }, versions };
   }),
 });
 

@@ -4,12 +4,21 @@ import { isNotFound } from "./kontent";
 
 export type StepKind = "draft" | "published" | "archived" | "scheduled";
 
+/** Which content types and collections a workflow applies to; an empty list means any. */
+export type WorkflowScope = { readonly contentTypeIds: readonly string[]; readonly collectionIds: readonly string[] };
+
 export type WorkflowStepInfo = {
+  readonly id: string;
   readonly name: string;
   readonly codename: string;
   readonly kind: StepKind;
   readonly workflowName: string;
   readonly workflowCodename: string;
+  readonly workflowId: string;
+  /** The workflow's scopes; a workflow without scopes applies where no other workflow does. */
+  readonly workflowScopes: readonly WorkflowScope[];
+  /** Ids of the steps this step can move to (only known for the workflow's own steps, not Published etc.). */
+  readonly transitionsTo: readonly string[];
 };
 
 /**
@@ -62,15 +71,26 @@ export const loadWorkflowSteps = async (client: ManagementClient): Promise<Workf
   const steps = new Map<string, WorkflowStepInfo>();
 
   for (const workflow of workflows) {
-    const add = (step: { id: string; name: string; codename: string }, kind: StepKind) =>
+    const workflowScopes = workflow.scopes.map((scope) => ({
+      contentTypeIds: (scope.content_types ?? []).flatMap((t) => (t.id ? [t.id] : [])),
+      collectionIds: (scope.collections ?? []).flatMap((c) => (c.id ? [c.id] : [])),
+    }));
+    const add = (step: { id: string; name: string; codename: string }, kind: StepKind, transitionsTo: string[] = []) =>
       steps.set(`${workflow.id}/${step.id}`, {
+        id: step.id,
         name: step.name,
         codename: step.codename,
         kind,
         workflowName: workflow.name,
         workflowCodename: workflow.codename,
+        workflowId: workflow.id,
+        workflowScopes,
+        transitionsTo,
       });
-    for (const step of workflow.steps) add(step, "draft");
+    for (const step of workflow.steps) {
+      const transitions = (step as unknown as { transitions_to?: { step?: { id?: string } }[] }).transitions_to ?? [];
+      add(step, "draft", transitions.flatMap((t) => (t.step?.id ? [t.step.id] : [])));
+    }
     add(workflow.publishedStep, "published");
     add(workflow.archivedStep, "archived");
     if (workflow.scheduledStep) add(workflow.scheduledStep, "scheduled");
@@ -137,6 +157,42 @@ export const targetStepFor = (
     inWorkflow.find((s) => s.codename === step.codename) ??
     inWorkflow.find((s) => s.kind === step.kind)
   );
+};
+
+// Kontent.ai's default workflow always has this id.
+const defaultWorkflowId = "00000000-0000-0000-0000-000000000000";
+
+/**
+ * The workflow an environment allows for items of a content type in a collection: the workflow whose scope
+ * covers them, otherwise the default workflow. Kontent.ai rejects a variant in any other workflow, for example
+ * an older item that stayed in the default workflow after a scope was added for its content type.
+ * Pass the environment's own content type and collection ids.
+ */
+export const requiredWorkflow = (
+  steps: WorkflowSteps,
+  contentTypeId: string,
+  collectionId: string,
+): { readonly codename: string; readonly name: string } | undefined => {
+  const workflows = [...new Map([...steps.values()].map((s) => [s.workflowId, s])).values()];
+  const covers = (scope: WorkflowScope) =>
+    (!scope.contentTypeIds.length || scope.contentTypeIds.includes(contentTypeId)) &&
+    (!scope.collectionIds.length || scope.collectionIds.includes(collectionId));
+  const match =
+    workflows.find((w) => w.workflowScopes.some(covers)) ??
+    workflows.find((w) => w.workflowId === defaultWorkflowId) ??
+    workflows.find((w) => !w.workflowScopes.length);
+  return match && { codename: match.workflowCodename, name: match.workflowName };
+};
+
+/**
+ * Whether the toolkit can archive a variant in this workflow: it saves the variant in the workflow's first
+ * step and then moves it straight to Archived, which the workflow's transitions must allow.
+ */
+export const canArchiveFromFirstStep = (steps: WorkflowSteps, workflowCodename: string): boolean => {
+  const inWorkflow = [...steps.values()].filter((s) => s.workflowCodename === workflowCodename);
+  const first = inWorkflow.find((s) => s.kind === "draft");
+  const archived = inWorkflow.find((s) => s.kind === "archived");
+  return !!first && !!archived && first.transitionsTo.includes(archived.id);
 };
 
 /** The first step of each workflow, by workflow codename: where the toolkit puts new drafts. */
@@ -222,6 +278,8 @@ const predictDrafts = ({
   latestStepName: string;
   firstStepName: string;
 }): Prediction => {
+  // Archived stays archived; the preview blocks the case where that would take a live target version offline.
+  if (source.stepKind === "archived") return { outcome: "Archived", effects: [] };
   const draftStep = stepLabel(source.stepKind === "draft" ? latestStepName : firstStepName);
   const outcome = target?.hasPublishedVersion
     ? `Live version unchanged, with the copied content as a new draft in ${draftStep}`
