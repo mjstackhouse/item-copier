@@ -104,6 +104,6 @@ A further test created a new item in the target: a Fact item with a non-localiza
 
 A scheduled item (a published version plus a newer version scheduled to publish, in a different display time zone) matched in both modes. "Match the source" reproduced the schedule exactly, time zone included. "Copy as drafts" over it cancelled the target's schedule, kept the live version and added a draft, without publishing anything. This test found that "Copy as drafts" had been re-publishing items in environments with more than one workflow (the Published, Archived and Scheduled steps share their ids across workflows); that is fixed, and the test script now fails a "Copy as drafts" run that sends any publishing request.
 
-The workflow step fallback was tested with a step ("AI review") added to the source's Default workflow but not the target's: the preview showed the note, and the copied draft landed in the target's Draft step. Publishing through the fallback (an item with a published version and a newer draft in the missing step) has only been tested against the fake API.
+The workflow step fallback was tested with a step ("AI review") added to the source's Default workflow but not the target's: the preview showed the note, and the copied draft landed in the target's Draft step. A second run, with the item published and a newer version in "AI review", published the item in the target and put the newer draft in the Draft step.
 
 Still untested on real data: large selections.
