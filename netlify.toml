@@ -1,0 +1,18 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# The page handles Management API keys, so it may only talk to the Management API and the asset hosts
+# it copies files from, and may only run its own scripts.
+# - style-src 'unsafe-inline': react-select adds its styles at runtime.
+# - connect-src: the API, and the default asset domains the toolkit downloads asset files from.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://manage.kontent.ai https://*.kc-usercontent.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    Referrer-Policy = "no-referrer"
+    X-Content-Type-Options = "nosniff"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"

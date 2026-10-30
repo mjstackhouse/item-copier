@@ -18,8 +18,18 @@ export const ConnectStep = ({ source, target, onSourceChange, onTargetChange, on
     <section>
       <h2>Connect environments</h2>
       <div className="two-columns">
-        <EnvironmentForm label="Copy from (source)" connection={source} onChange={onSourceChange} />
-        <EnvironmentForm label="Copy to (target)" connection={target} onChange={onTargetChange} />
+        <EnvironmentForm
+          label="Copy from (source)"
+          permissions="Read content, Read assets, Manage content model and Manage environment settings"
+          connection={source}
+          onChange={onSourceChange}
+        />
+        <EnvironmentForm
+          label="Copy to (target)"
+          permissions="Create, edit, and delete content; Create, edit, and delete assets; Manage content model; and Manage environment settings"
+          connection={target}
+          onChange={onTargetChange}
+        />
       </div>
       {sameEnvironment && <Message kind="error">Source and target are the same environment.</Message>}
       <div className="actions">
@@ -38,11 +48,13 @@ export const ConnectStep = ({ source, target, onSourceChange, onTargetChange, on
 
 type FormProps = {
   readonly label: string;
+  /** The Management API key permissions this side needs; the app also reads the content model and settings. */
+  readonly permissions: string;
   readonly connection?: Connection;
   readonly onChange: (connection: Connection | undefined) => void;
 };
 
-const EnvironmentForm = ({ label, connection, onChange }: FormProps) => {
+const EnvironmentForm = ({ label, permissions, connection, onChange }: FormProps) => {
   const [environmentId, setEnvironmentId] = useState(connection?.environmentId ?? "");
   const [apiKey, setApiKey] = useState(connection?.apiKey ?? "");
   const [status, setStatus] = useState<{ readonly loading: boolean; readonly error?: string }>({ loading: false });
@@ -90,7 +102,9 @@ const EnvironmentForm = ({ label, connection, onChange }: FormProps) => {
       <div className="field">
         <div className="field-label">
           <label htmlFor={`${id}-key`}>Management API key</label>
-          <Tooltip text="A Management API key for this environment, from Project settings > API keys. It is kept in this browser tab only and cleared when you close or reload it." />
+          <Tooltip
+            text={`A Management API key for this environment, from Project settings > API keys, with these permissions: ${permissions}. It is kept in this browser tab only and cleared when you close or reload it.`}
+          />
         </div>
         <input id={`${id}-key`} type="password" value={apiKey} onChange={edit(setApiKey)} />
       </div>

@@ -6,29 +6,52 @@ A browser-only React app for copying content items (and the assets they use) fro
 
 There is no backend. API keys are kept in memory in the browser tab and are gone when it is closed or reloaded.
 
-## Run it
+## Using the tool
 
-Requires Node.js 20 or later for development.
+The tool copies content items, the items they link to and the assets they use from one Kontent.ai environment to another, in one or more languages. It runs entirely in your browser: there is no server, and your API keys are never stored.
+
+**Before you start**
+
+- Try it on a test environment first. Copying overwrites items that already exist in the target, and it can't be undone. Before copying into an environment that matters, back it up (for example with a data-ops export).
+- The target needs the same content model: content types (with the same elements), taxonomy groups and terms, collections, languages and workflows, matched by codename. The preview tells you what's missing. Use data-ops `sync` to align the models.
+- Create a Management API key for each environment in **Project settings > API keys**. According to the Kontent.ai documentation, the tool needs these permissions:
+  - Source: *Read content*, *Read assets*, *Manage content model* and *Manage environment settings*.
+  - Target: *Create, edit, and delete content*; *Create, edit, and delete assets*; *Manage content model*; and *Manage environment settings*.
+
+  The tool only reads the content model and settings; it needs the last two permissions because they are what allow reading content types, taxonomies, languages, collections and workflows. A Personal API key works too, if its owner has those rights. (These permissions come from the documentation and haven't been tested with a key limited to exactly them.)
+
+**Copying**
+
+1. **Connect**: enter the environment ID and API key for the source and the target.
+2. **Choose items**: search by name or text, narrow the search with **Filters** (content type, collection, workflow step, taxonomy), and tick the items to copy. Under **Copy settings**, choose the languages and whether to include linked items.
+3. **Preview**: check what will happen to each item before anything is written. Red messages block the copy and say how to fix the cause. Choose how publishing is handled:
+   - **Match the source**: items end up published, unpublished, scheduled or archived as in the source. Items live in the target can be unpublished or replaced right away; the preview lists these changes.
+   - **Copy as drafts**: nothing is published or unpublished. Items live in the target stay live, with the copied content as a new draft.
+4. **Copy**: follow the progress log. You can cancel between items; items already copied stay copied.
+
+**Good to know**
+
+- Requests are paced to stay within half of the Management API's rate limits, so the tool doesn't slow down other work in the environments. Large selections take a while: about 200 requests a minute, roughly 3 minutes for 65 language variants.
+- Workflow history, comments, tasks and assignees aren't copied.
+- Archived items stay archived. If the target can't keep an item archived, the copy is blocked.
+
+## Develop and deploy
+
+Requires Node.js 20 or later for development (CI and Netlify use Node.js 22).
 
 ```bash
-npm install
+npm install      # also applies the toolkit patches in patches/
 npm run dev      # local dev server
 npm run build    # typecheck + production build into dist/
 ```
 
-`dist/` is a static site and can be hosted anywhere (Netlify, Vercel, Azure Static Web Apps, an S3 bucket).
+`dist/` is a static site. `netlify.toml` builds it on Netlify and sets the security headers: a Content Security Policy that only lets the page run its own scripts and only connect to the Management API (`manage.kontent.ai`) and the default asset domains (`*.kc-usercontent.com`), plus `Referrer-Policy: no-referrer`. If you host it elsewhere, set the same headers.
 
-## Before you rely on it: check browser access
+One open question: if an environment has a custom asset domain and the Management API returns asset URLs on that domain, the policy blocks downloading those assets. This hasn't been checked; if it happens, add the domain to `connect-src`.
 
-The app calls the Management API and downloads asset files directly from the browser, so both must allow cross-origin requests (CORS). The data-ops GUI proof of concept already calls the Management API from the browser, which is a good sign, but asset downloads have not been confirmed. Run this in the browser console on the page where the app is hosted:
+`npm install` fails if a toolkit patch no longer applies (`patch-package --error-on-fail`), so a build without the patches can't be deployed. The GitHub Actions workflow in `.github/workflows/ci.yml` runs a clean install, the typecheck and the build on every push and pull request.
 
-```js
-const env = "<environment-id>", key = "<management-api-key>";
-await fetch(`https://manage.kontent.ai/v2/projects/${env}`, { headers: { Authorization: `Bearer ${key}` } }).then((r) => r.status);
-await fetch("<url of any asset in that environment>").then((r) => r.status);
-```
-
-If both print a status code instead of a CORS error, you are clear. Then try a real copy into a test environment before anything else.
+Calling the Management API and downloading asset files from the browser both work (CORS), confirmed by copying items with assets from a browser.
 
 ## How it works
 

@@ -93,6 +93,11 @@ main {
   color: var(--color-gray-500);
 }
 
+.intro a {
+  color: var(--purple);
+  font-weight: 600;
+}
+
 h2,
 h3,
 .section-heading {
