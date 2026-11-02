@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import type { Connection, SourceData } from "../lib/kontent";
-import { buildPlan, type Plan, predictRow, publishModeBlockers } from "../lib/plan";
-import type { LiveEffect, PublishMode } from "../lib/publishing";
+import { buildPlan, type Plan, type PlanRow, predictRow, publishModeBlockers, type TargetStatus } from "../lib/plan";
+import type { LiveEffect, Prediction, PublishMode } from "../lib/publishing";
 import { languagesToCopy, type Selection } from "../lib/selection";
-import { errorMessage } from "../lib/util";
-import { Message } from "./ui";
+import { errorMessage, plural, unique } from "../lib/util";
+import { Codename, Message } from "./ui";
 
 type Props = {
   readonly source: Connection;
@@ -33,7 +33,9 @@ export const PreviewStep = ({
   const [plan, setPlan] = useState<Plan>();
   const [progress, setProgress] = useState("Starting");
   const [error, setError] = useState<string>();
-  const [confirmed, setConfirmed] = useState(false);
+  const [filter, setFilter] = useState("all");
+  const dialog = useRef<HTMLDialogElement>(null);
+  const id = useId();
 
   // Only what the plan depends on: the skip option, for example, is set on this step and must not rebuild it.
   const { pickedItems, linkedItemsDepth, copyAllLanguages, chosenLanguages } = selection;
@@ -81,36 +83,54 @@ export const PreviewStep = ({
   }
 
   const rows = plan.rows.map((row) => ({ row, prediction: predictRow(row, publishMode) }));
-  const blockers = [...plan.blockers, ...publishModeBlockers(plan, publishMode, target.environmentName)];
+  const blockers = [...plan.blockers, ...publishModeBlockers(plan, publishMode)];
   const overwrites = plan.rows.filter((r) => r.targetStatus === "overwrites existing").length;
   const countEffect = (effect: LiveEffect) => rows.filter((r) => r.prediction.effects.includes(effect)).length;
   const goesLive = countEffect("goes live");
   const replacesLive = countEffect("replaces live content");
-  const removedFromLive = countEffect("removed from live site");
+  const unpublished = countEffect("unpublished");
   const schedulesReplaced = countEffect("schedule replaced");
   const schedulesCancelled = countEffect("schedule cancelled");
-  const liveChanges = [
-    removedFromLive > 0 &&
-      `${removedFromLive} variant(s) will be unpublished and removed from the live site, because they are not published in the source.`,
-    replacesLive > 0 && `${replacesLive} variant(s) will replace content that is live in the target, right away.`,
-    goesLive > 0 && `${goesLive} variant(s) will be published and go live right away.`,
+  // What the confirmation dialog lists; without any of these, Copy starts right away.
+  const consequences = [
+    overwrites > 0 && `${plural(overwrites, "existing variant")} will be overwritten.`,
+    goesLive > 0 && `${plural(goesLive, "variant")} will be published right away.`,
+    replacesLive > 0 &&
+      `${plural(replacesLive, "variant")} will replace ${replacesLive === 1 ? "its" : "their"} published ${replacesLive === 1 ? "version" : "versions"} right away.`,
+    unpublished > 0 &&
+      `${plural(unpublished, "variant")} will be unpublished, because ${unpublished === 1 ? "it isn't" : "they aren't"} published in the source.`,
     schedulesReplaced > 0 &&
-      `${schedulesReplaced} variant(s) have scheduled publishing in the target that will be cancelled and replaced with the source's.`,
-    schedulesCancelled > 0 &&
-      `${schedulesCancelled} variant(s) have scheduled publishing in the target that will be cancelled.`,
+      `${plural(schedulesReplaced, "scheduled publishing")} will be cancelled and replaced with the source's.`,
+    schedulesCancelled > 0 && `${plural(schedulesCancelled, "scheduled publishing")} will be cancelled.`,
   ].filter((text): text is string => !!text);
-  const confirmParts = [
-    overwrites > 0 && `${overwrites} existing variant(s) will be overwritten`,
-    removedFromLive > 0 && `${removedFromLive} variant(s) will be unpublished`,
-    goesLive + replacesLive > 0 && `${goesLive + replacesLive} variant(s) will be published right away`,
+
+  const itemCount = new Set(plan.rows.map((r) => r.id)).size;
+  // Names as in the Kontent.ai app; codenames are behind a {#} icon, as there.
+  const languageNames = new Map(sourceData.languages.map((l) => [l.codename, l.name]));
+  const languageName = (codename: string) => languageNames.get(codename) ?? codename;
+  const copiedLanguages = unique(plan.rows.map((r) => r.languageCodename));
+  const languageSummary =
+    copiedLanguages.length > 3
+      ? plural(copiedLanguages.length, "language")
+      : copiedLanguages.map(languageName).join(", ");
+  const newVariants = plan.rows.length - overwrites;
+  const summaryParts = [
+    `${plural(itemCount, "item")} in ${plural(plan.rows.length, "language variant")} (${languageSummary})`,
+    newVariants > 0 && `${newVariants} new`,
+    overwrites > 0 && `${overwrites} ${overwrites === 1 ? "overwrites" : "overwrite"} existing`,
+    goesLive > 0 && `${goesLive} published`,
+    replacesLive > 0 && `${replacesLive} ${replacesLive === 1 ? "replaces its" : "replace their"} published version`,
+    unpublished > 0 && `${unpublished} unpublished`,
   ].filter((text): text is string => !!text);
-  // What needs confirming depends on the mode, so a change of mode asks for it again.
-  const changeMode = (mode: PublishMode) => {
-    setConfirmed(false);
-    onPublishModeChange(mode);
-  };
-  const copied = languagesToCopy(selection, sourceData.languages);
-  const languageSummary = copied.length > 5 ? `${copied.length} languages` : copied.join(", ");
+
+  const missingReferences = [
+    plan.deletedReferenceCount > 0 &&
+      plural(plan.deletedReferenceCount, "reference to a deleted item", "references to deleted items"),
+    plan.missingAssetCount > 0 &&
+      plural(plan.missingAssetCount, "reference to a deleted asset", "references to deleted assets"),
+  ]
+    .filter((text): text is string => !!text)
+    .join(" and ");
   // Grouped by item: listing every variant would repeat long item names once per missing language.
   const skippedGroups = new Map<string, { name: string; languages: string[] }>();
   for (const v of plan.skippedVariants) {
@@ -119,18 +139,41 @@ export const PreviewStep = ({
     skippedGroups.set(v.itemId, group);
   }
   const skippedByItem = [...skippedGroups.entries()].map(([id, group]) => ({ id, ...group }));
-  const itemCount = new Set(plan.rows.map((r) => r.id)).size;
-  const variantCount = (id: string) => plan.rows.filter((r) => r.id === id).length;
+  const noteCount =
+    plan.notes.length +
+    (skippedByItem.length > 0 ? 1 : 0) +
+    (plan.rows.length > largeCopy ? 1 : 0) +
+    (missingReferences && selection.skipMissingReferences ? 1 : 0);
+
+  // Why the Copy button is disabled, shown next to it.
+  const blockedBy =
+    blockers.length > 0
+      ? "Fix the errors above to copy."
+      : missingReferences && !selection.skipMissingReferences
+        ? "Skip the missing references above to copy."
+        : undefined;
+
+  const filters = rowFilters.filter(
+    (f) => f.id === "all" || rows.some(({ row, prediction }) => f.matches(row, prediction)),
+  );
+  // A filter can stop matching anything when the publishing option changes.
+  const activeFilter = filters.find((f) => f.id === filter) ?? rowFilters[0];
+  const shownRows = rows.filter(({ row, prediction }) => activeFilter.matches(row, prediction));
+  const variantCount = (id: string) => shownRows.filter(({ row }) => row.id === id).length;
   const namesById = new Map(plan.rows.map((r) => [r.id, r.item.name]));
-  const nameOf = (id: string | undefined) => (id ? (namesById.get(id) ?? id) : "");
+
+  const startCopy = () => (consequences.length > 0 ? dialog.current?.showModal() : onConfirm(plan));
 
   return (
     <section>
       <h2>Preview</h2>
-      <p>
-        <strong>{itemCount}</strong> item(s) in <strong>{plan.rows.length}</strong> language variant(s) will be copied
-        from <strong>{source.environmentName}</strong> to <strong>{target.environmentName}</strong> ({languageSummary}).
-        Assets they use are copied too.
+      <p className="preview-summary">
+        <strong>
+          {source.environmentName} → {target.environmentName}
+        </strong>
+        {summaryParts.map((part) => (
+          <span key={part}> · {part}</span>
+        ))}
       </p>
 
       {blockers.map((b) => (
@@ -138,79 +181,99 @@ export const PreviewStep = ({
           {b}
         </Message>
       ))}
-      {plan.notes.map((n) => (
-        <Message key={n} kind="info">
-          {n}
+      {missingReferences && !selection.skipMissingReferences && (
+        <Message kind="warning">
+          <p>
+            The items to copy contain {missingReferences}. The copy stops on them unless they are skipped, which leaves
+            them out of the copied content.
+          </p>
+          <label className="checkbox">
+            <input type="checkbox" checked={false} onChange={() => onSkipMissingReferencesChange(true)} />
+            Skip missing references
+          </label>
         </Message>
-      ))}
-      {skippedByItem.length > 0 && (
+      )}
+      {noteCount > 0 && (
         <Message kind="info">
           <details>
             <summary>
-              {plan.skippedVariants.length} language variant(s) don't exist in the source and are skipped.
+              More information about this copy ({noteCount})
               {/* The text ("Show details" / "Hide details") comes from CSS, following the open state. */}
               <span className="details-toggle" />
             </summary>
             <ul>
-              {skippedByItem.map(({ id, name, languages }) => (
-                <li key={id}>
-                  <strong>{name}:</strong> {listLanguages(languages)}
+              {missingReferences && selection.skipMissingReferences && (
+                <li>
+                  {missingReferences.charAt(0).toUpperCase() + missingReferences.slice(1)} will be left out of the
+                  copied content (Skip missing references is on).
                 </li>
+              )}
+              {plan.rows.length > largeCopy && (
+                <li>
+                  This is a large copy. It runs in this tab and can take a while, so keep the tab open until it
+                  finishes. If the linked items depth pulled in more than you need, go back and lower it.
+                </li>
+              )}
+              {plan.notes.map((n) => (
+                <li key={n}>{n}</li>
               ))}
+              {skippedByItem.length > 0 && (
+                <li>
+                  {plural(plan.skippedVariants.length, "language variant")} with no content in the source{" "}
+                  {plan.skippedVariants.length === 1 ? "is" : "are"} skipped:
+                  <ul>
+                    {skippedByItem.map(({ id, name, languages }) => (
+                      <li key={id}>
+                        <strong>{name}:</strong> {listLanguages(languages)}
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              )}
             </ul>
           </details>
-        </Message>
-      )}
-      {plan.deletedReferenceCount > 0 && (
-        <Message kind="warning">
-          <p>
-            {plan.deletedReferenceCount} reference(s) point to items that no longer exist in the source. The copy fails
-            on them unless they are skipped.
-          </p>
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={selection.skipMissingReferences}
-              onChange={(e) => onSkipMissingReferencesChange(e.target.checked)}
-            />
-            Skip these references when copying
-          </label>
         </Message>
       )}
 
       <fieldset className="publish-mode">
         <legend className="section-heading">Publishing</legend>
-        <label className="checkbox">
-          <input
-            type="radio"
-            name="publish-mode"
-            checked={publishMode === "match"}
-            onChange={() => changeMode("match")}
-          />
-          <span>
-            <strong>Match the source</strong>
-            <span className="muted">
-              Items published in the source are published in the target, items not published in the source are
-              unpublished there, and schedules are copied.
-            </span>
-          </span>
-        </label>
-        <label className="checkbox">
-          <input
-            type="radio"
-            name="publish-mode"
-            checked={publishMode === "drafts"}
-            onChange={() => changeMode("drafts")}
-          />
-          <span>
-            <strong>Copy as drafts</strong>
-            <span className="muted">
-              Nothing is published or unpublished. Items that are live in the target stay live, with the copied content
-              as a new draft on top. Schedules are not copied.
-            </span>
-          </span>
-        </label>
+        <div className="publish-options">
+          {publishOptions.map((option) => (
+            <label
+              key={option.mode}
+              className={`checkbox publish-option ${publishMode === option.mode ? "selected" : ""}`}
+            >
+              <input
+                type="radio"
+                name="publish-mode"
+                checked={publishMode === option.mode}
+                onChange={() => onPublishModeChange(option.mode)}
+              />
+              <span>
+                <strong>{option.title}</strong>
+                <span className="muted">{option.description}</span>
+              </span>
+            </label>
+          ))}
+        </div>
       </fieldset>
+
+      {filters.length > 2 && (
+        <fieldset className="row-filters">
+          <legend className="visually-hidden">Show</legend>
+          {filters.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              className="filter-chip"
+              aria-pressed={f.id === activeFilter.id}
+              onClick={() => setFilter(f.id)}
+            >
+              {f.label} ({rows.filter(({ row, prediction }) => f.matches(row, prediction)).length})
+            </button>
+          ))}
+        </fieldset>
+      )}
 
       <div className="table-wrap">
         <table>
@@ -219,42 +282,49 @@ export const PreviewStep = ({
               <th>Item</th>
               <th>Type</th>
               <th>Language</th>
-              <th>Why</th>
-              <th>In target</th>
-              <th>After copy</th>
+              <th>Result</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map(({ row, prediction }, index) => (
-              <tr key={`${row.id}-${row.languageCodename}`}>
+            {shownRows.map(({ row, prediction }, index) => (
+              <tr
+                key={`${row.id}-${row.languageCodename}`}
+                className={shownRows[index - 1]?.row.id === row.id ? "same-item" : undefined}
+              >
                 {/* An item's variants are next to each other; its name and type span them. */}
-                {rows[index - 1]?.row.id !== row.id && (
+                {shownRows[index - 1]?.row.id !== row.id && (
                   <>
                     <td rowSpan={variantCount(row.id)}>
                       {row.item.name}
-                      <div className="muted">{row.item.codename}</div>
+                      <Codename codename={row.item.codename} />
+                      {row.depth > 0 && (
+                        <div className="muted linked-from">
+                          Linked from {namesById.get(row.linkedFrom ?? "") ?? "?"}
+                        </div>
+                      )}
                     </td>
-                    <td rowSpan={variantCount(row.id)}>{row.typeCodename}</td>
+                    <td rowSpan={variantCount(row.id)} className="nowrap-cell">
+                      {sourceData.typesById.get(row.item.typeId)?.name ?? row.typeCodename}
+                      <Codename codename={row.typeCodename} />
+                    </td>
                   </>
                 )}
-                <td>{row.languageCodename}</td>
-                <td>{row.depth === 0 ? "Selected" : `Linked from ${nameOf(row.linkedFrom)}`}</td>
-                <td>
-                  <span className={`badge ${row.targetStatus === "overwrites existing" ? "badge-warn" : ""}`}>
-                    {row.targetStatus}
-                  </span>
+                <td className="nowrap-cell">
+                  {languageName(row.languageCodename)}
+                  <Codename codename={row.languageCodename} />
                 </td>
                 <td>
-                  {prediction.outcome}
-                  {prediction.effects.length > 0 && (
-                    <div className="badges">
-                      {prediction.effects.map((effect) => (
-                        <span key={effect} className={`badge ${effectBadgeClass[effect]}`}>
-                          {effect}
-                        </span>
-                      ))}
-                    </div>
-                  )}
+                  <div className="badges">
+                    <span className={`badge ${row.targetStatus === "overwrites existing" ? "badge-warn" : ""}`}>
+                      {targetStatusLabel[row.targetStatus]}
+                    </span>
+                    {prediction.effects.map((effect) => (
+                      <span key={effect} className={`badge ${effectBadgeClass[effect]}`}>
+                        {effectLabel[effect]}
+                      </span>
+                    ))}
+                  </div>
+                  {!saidByBadge(prediction) && prediction.outcome}
                 </td>
               </tr>
             ))}
@@ -262,65 +332,106 @@ export const PreviewStep = ({
         </table>
       </div>
 
-      {/* The publishing summary and the confirmation sit together, next to the Copy button. */}
-      {(liveChanges.length > 0 || confirmParts.length > 0) && (
-        <div className="before-copy">
-          <p className="section-heading">Before you copy</p>
-          {liveChanges.length > 0 && (
-            <>
-              <p>
-                {publishMode === "match" ? (
-                  <>
-                    The copy makes each item's publishing state in <strong>{target.environmentName}</strong> match the
-                    source:
-                  </>
-                ) : (
-                  <>
-                    Nothing will be published or unpublished in <strong>{target.environmentName}</strong>, but:
-                  </>
-                )}
-              </p>
-              <ul>
-                {liveChanges.map((text) => (
-                  <li key={text}>{text}</li>
-                ))}
-              </ul>
-            </>
-          )}
-          {confirmParts.length > 0 && (
-            <label className="checkbox">
-              <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />I understand
-              that in {target.environmentName}, {confirmParts.join(", ")}, and that this can&apos;t be undone.
-            </label>
-          )}
+      <dialog ref={dialog} className="confirm-dialog" aria-labelledby={`${id}-confirm-title`}>
+        <h3 id={`${id}-confirm-title`}>
+          Copy {plural(plan.rows.length, "variant")} to {target.environmentName}?
+        </h3>
+        <p>In {target.environmentName}:</p>
+        <ul>
+          {consequences.map((text) => (
+            <li key={text}>{text}</li>
+          ))}
+        </ul>
+        <p>This can&apos;t be undone.</p>
+        <div className="dialog-actions">
+          {/* First in the dialog, so opening it focuses Cancel: the safe choice is the default. */}
+          <button type="button" className="btn back-btn" onClick={() => dialog.current?.close()}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn continue-btn"
+            onClick={() => {
+              dialog.current?.close();
+              onConfirm(plan);
+            }}
+          >
+            Copy
+          </button>
         </div>
-      )}
+      </dialog>
 
       <div className="actions">
         <button type="button" className="btn back-btn" onClick={onBack}>
           Back
         </button>
-        <button
-          type="button"
-          className="btn continue-btn"
-          disabled={
-            blockers.length > 0 ||
-            (confirmParts.length > 0 && !confirmed) ||
-            (plan.deletedReferenceCount > 0 && !selection.skipMissingReferences)
-          }
-          onClick={() => onConfirm(plan)}
-        >
-          Copy {plan.rows.length} variant(s)
+        {blockedBy && <span className="muted actions-hint">{blockedBy}</span>}
+        <button type="button" className="btn continue-btn" disabled={!!blockedBy} onClick={startCopy}>
+          Copy {plural(plan.rows.length, "variant")}
         </button>
       </div>
     </section>
   );
 };
 
+const publishOptions: readonly { readonly mode: PublishMode; readonly title: string; readonly description: string }[] =
+  [
+    {
+      mode: "match",
+      title: "Match the source",
+      description: "Publishing states and schedules in the target end up as in the source.",
+    },
+    {
+      mode: "drafts",
+      title: "Copy as drafts",
+      description: "Nothing is published or unpublished. Published items stay published, with the copy as a new draft.",
+    },
+  ];
+
+const targetStatusLabel: Record<TargetStatus, string> = {
+  "new item": "New item",
+  "new language variant": "New language",
+  "overwrites existing": "Overwrites",
+};
+
+type RowFilter = {
+  readonly id: string;
+  readonly label: string;
+  readonly matches: (row: PlanRow, prediction: Prediction) => boolean;
+};
+
+// Shown when more than one applies, so the rows that change the target are easy to find.
+const rowFilters: readonly [RowFilter, ...RowFilter[]] = [
+  { id: "all", label: "All", matches: () => true },
+  { id: "overwrites", label: "Overwrites", matches: (row) => row.targetStatus === "overwrites existing" },
+  {
+    id: "live",
+    label: "Published",
+    matches: (_, p) => p.effects.includes("goes live") || p.effects.includes("replaces live content"),
+  },
+  { id: "unpublished", label: "Unpublished", matches: (_, p) => p.effects.includes("unpublished") },
+];
+
+// Above this many variants, the preview says the copy will take a while.
+const largeCopy = 300;
+
+// A plain "Published" outcome only repeats the "Published" or "Replaces published version" badge.
+const saidByBadge = (prediction: Prediction) =>
+  prediction.outcome === "Published" &&
+  (prediction.effects.includes("goes live") || prediction.effects.includes("replaces live content"));
+
+const effectLabel: Record<LiveEffect, string> = {
+  "goes live": "Published",
+  "replaces live content": "Replaces published version",
+  unpublished: "Unpublished",
+  "schedule replaced": "Schedule replaced",
+  "schedule cancelled": "Schedule cancelled",
+};
+
 const effectBadgeClass: Record<LiveEffect, string> = {
   "goes live": "",
   "replaces live content": "badge-warn",
-  "removed from live site": "badge-danger",
+  unpublished: "badge-danger",
   "schedule replaced": "badge-warn",
   "schedule cancelled": "badge-warn",
 };

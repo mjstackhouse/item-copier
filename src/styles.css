@@ -51,14 +51,27 @@ body {
  * In pixels on purpose: the root font size is 12px, so rem units here are smaller than usual.
  */
 main {
+  /* The step fills the window, so the footer and the step's buttons stay at the bottom while it scrolls. */
+  --footer-height: 48px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  min-height: 100vh;
   max-width: 1280px;
   margin: 0 auto;
-  padding: 6rem 3rem 3rem;
+  padding: 6rem 3rem 0;
+}
+
+/* A column, so the buttons can sit at the bottom of the window when the step is short. */
+main > section {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
 }
 
 @media (max-width: 640px) {
   main {
-    padding: 6rem 1.25rem 2rem;
+    padding: 6rem 1.25rem 0;
   }
 }
 
@@ -94,9 +107,17 @@ main {
 }
 
 .app-footer {
-  margin-top: 3rem;
-  padding-top: 1rem;
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: var(--footer-height);
+  margin-top: 2rem;
   border-top: 1px solid var(--color-gray-300);
+  background: white;
   font-size: 12px;
   text-align: center;
   color: var(--color-gray-500);
@@ -257,6 +278,14 @@ h2 {
   padding: 0.5rem 1.5rem 1.5rem;
 }
 
+/* The results screen's list of copied variants, collapsed like the copy settings. */
+.copied-list ul {
+  max-height: 360px;
+  margin: 0;
+  padding: 0.5rem 1.5rem 1.5rem 3rem;
+  overflow-y: auto;
+}
+
 .depth-select {
   align-self: flex-start;
 }
@@ -276,15 +305,31 @@ h2 {
   align-items: baseline;
 }
 
+/* Sticks above the footer, so the buttons stay in view while a long step scrolls. */
 .actions {
+  position: sticky;
+  bottom: var(--footer-height);
+  z-index: 10;
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 1.5rem;
+  margin-top: auto;
+  padding: 1.5rem 0 1rem;
+  background: white;
 }
 
 .actions .continue-btn {
   margin-left: auto;
+}
+
+/* Why the next button is disabled, right next to it. */
+.actions .actions-hint {
+  margin-left: auto;
+  text-align: right;
+}
+
+.actions .actions-hint + .continue-btn {
+  margin-left: 0;
 }
 
 .options {
@@ -497,6 +542,26 @@ input[type="radio"] {
   display: block;
 }
 
+/* Codenames in the preview table, shown above the {#} icon. */
+.codename {
+  position: relative;
+  vertical-align: baseline;
+}
+
+.codename-icon {
+  margin-left: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--color-gray-500);
+}
+
+.codename .tooltip-text {
+  top: auto;
+  bottom: calc(100% + 6px);
+  max-width: 340px;
+  overflow-wrap: anywhere;
+}
+
 /* Spinners: white inside a button, orange for page-level loading */
 
 .loading-span {
@@ -517,6 +582,19 @@ input[type="radio"] {
   gap: 12px;
   font-size: 14px;
   color: var(--color-gray-500);
+}
+
+/* A step that is only loading centers its progress in the window. */
+main > section > .loading-general {
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+}
+
+main > section > .loading-general::before {
+  width: 40px;
+  height: 40px;
 }
 
 .loading-general::before {
@@ -750,10 +828,18 @@ input[type="radio"] {
 
 /* Preview table */
 
+/* Not scrollable: that would cut off codename tooltips at its edges. The header follows the rounded corners. */
 .table-wrap {
-  overflow-x: auto;
   border: 1px solid var(--dark-gray);
   border-radius: 0.75rem;
+}
+
+thead th:first-child {
+  border-top-left-radius: 0.75rem;
+}
+
+thead th:last-child {
+  border-top-right-radius: 0.75rem;
 }
 
 table {
@@ -776,6 +862,20 @@ td {
 }
 
 tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Items are separated by a darker line; an item's language variants by a lighter dashed one. */
+tbody td {
+  border-bottom-color: var(--color-gray-300);
+}
+
+tbody tr:has(+ .same-item) > td:not([rowspan]) {
+  border-bottom: 1px dashed var(--dark-gray);
+}
+
+/* The last item's name and type span down to the table's edge, which has its own border. */
+tbody tr:not(:has(~ tr:not(.same-item))) > td[rowspan] {
   border-bottom: none;
 }
 
@@ -805,10 +905,13 @@ tbody tr:last-child td {
   margin-top: 4px;
 }
 
+/* One line at the top of the preview: from where to where, and what the copy does in numbers. */
+.preview-summary {
+  margin: 0 0 1rem;
+  font-size: 14px;
+}
+
 .publish-mode {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
   margin: 1.5rem 0;
   padding: 0;
   border: none;
@@ -819,36 +922,121 @@ tbody tr:last-child td {
   padding: 0;
 }
 
-.publish-mode label > span {
+/* The two publishing options as cards side by side; the chosen one is outlined. */
+.publish-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.publish-option {
+  align-items: flex-start;
+  padding: 12px 16px;
+  border: 1px solid var(--dark-gray);
+  border-radius: 0.75rem;
+  cursor: pointer;
+}
+
+.publish-option:hover {
+  border-color: var(--color-gray-400);
+}
+
+.publish-option.selected {
+  border-color: var(--purple);
+  background: rgb(222 221 253 / 35%);
+}
+
+.publish-option > span {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-/* "Before you copy": the publishing changes and the confirmation, right above the Copy button. */
-.before-copy {
+/* Filters for the preview table, shown when there is more than one kind of change. */
+.row-filters {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   gap: 8px;
-  margin-top: 1.5rem;
-  padding: 1rem 1.25rem;
-  border: 1px solid var(--dark-gray);
-  border-radius: 0.75rem;
+  margin: 0 0 12px;
+  padding: 0;
+  border: none;
+}
+
+.filter-chip {
+  padding: 4px 12px;
+  border: 1px solid var(--color-gray-300);
+  border-radius: 9999px;
+  background: white;
+  color: var(--lighter-black);
+  font: inherit;
   font-size: 13px;
+  cursor: pointer;
 }
 
-.before-copy p,
-.before-copy ul {
-  margin: 0;
+.filter-chip:hover {
+  border-color: var(--color-gray-400);
 }
 
-.before-copy .section-heading {
-  margin-bottom: 0;
+.filter-chip[aria-pressed="true"] {
+  border-color: var(--purple);
+  background: var(--lighter-purple);
+  color: var(--darker-purple);
+  font-weight: 600;
 }
 
-.before-copy label.checkbox {
-  margin-top: 4px;
+/* Type and language names stay on one line with their {#} icon. */
+td.nowrap-cell {
+  white-space: nowrap;
+}
+
+td .linked-from {
+  margin-top: 2px;
+  font-size: 12px;
+}
+
+td .badges {
+  margin: 0 0 4px;
+}
+
+/* The confirmation before a copy that overwrites, publishes or unpublishes anything. */
+.confirm-dialog {
+  max-width: 520px;
+  padding: 1.5rem;
+  border: none;
+  border-radius: 1rem;
+  box-shadow: 0 10px 40px rgb(0 0 0 / 20%);
+  color: var(--lighter-black);
   font-size: 14px;
+}
+
+.confirm-dialog::backdrop {
+  background: rgb(0 0 0 / 40%);
+}
+
+.confirm-dialog h3 {
+  margin: 0 0 0.75rem;
+  font-size: 16px;
+}
+
+.confirm-dialog p,
+.confirm-dialog ul {
+  margin: 0 0 0.75rem;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 1.25rem;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* Progress log, as the localization auditor's */

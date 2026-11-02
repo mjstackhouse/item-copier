@@ -1,5 +1,6 @@
 import type { ManagementClient } from "@kontent-ai/management-sdk";
 
+import type { VariantElement } from "./kontent";
 import { isNotFound } from "./util";
 
 export type StepKind = "draft" | "published" | "archived" | "scheduled";
@@ -63,7 +64,7 @@ export type PublishingState = {
 export type LiveEffect =
   | "goes live"
   | "replaces live content"
-  | "removed from live site"
+  | "unpublished"
   | "schedule replaced"
   | "schedule cancelled";
 
@@ -113,7 +114,8 @@ export const loadWorkflowSteps = async (client: ManagementClient): Promise<Workf
 
 /**
  * Completes a variant's state with whether it has a published version. That takes one more
- * request when the latest version is not the published one (for example a draft of a published item).
+ * request when the latest version is not the published one (for example a draft of a published item),
+ * which also returns that published version's elements: the toolkit copies that version too.
  */
 export const getPublishingState = async (params: {
   readonly client: ManagementClient;
@@ -121,36 +123,43 @@ export const getPublishingState = async (params: {
   readonly item: { readonly id: string } | { readonly codename: string };
   readonly languageCodename: string;
   readonly latest: VariantState;
-}): Promise<PublishingState> => {
+}): Promise<{
+  readonly state: PublishingState;
+  /** The elements of an older published version; undefined when there is none, or the latest version is it. */
+  readonly olderPublishedElements?: readonly VariantElement[];
+}> => {
   const step = findStep(params.steps, params.latest) ?? { name: "", kind: "draft" as const };
 
-  const hasPublishedVersion =
-    step.kind === "published" ||
-    (step.kind !== "archived" && (await hasPublishedVersionAsync(params.client, params.item, params.languageCodename)));
+  const olderPublishedElements =
+    step.kind === "published" || step.kind === "archived"
+      ? undefined
+      : await getPublishedElementsAsync(params.client, params.item, params.languageCodename);
 
   return {
-    stepName: step.name,
-    stepKind: step.kind,
-    hasPublishedVersion,
-    publishTime: params.latest.publishTime,
-    unpublishTime: params.latest.unpublishTime,
+    state: {
+      stepName: step.name,
+      stepKind: step.kind,
+      hasPublishedVersion: step.kind === "published" || olderPublishedElements !== undefined,
+      publishTime: params.latest.publishTime,
+      unpublishTime: params.latest.unpublishTime,
+    },
+    olderPublishedElements,
   };
 };
 
-const hasPublishedVersionAsync = async (
+const getPublishedElementsAsync = async (
   client: ManagementClient,
   item: { readonly id: string } | { readonly codename: string },
   languageCodename: string,
-): Promise<boolean> => {
+): Promise<readonly VariantElement[] | undefined> => {
   const query =
     "id" in item
       ? client.viewLanguageVariant().byItemId(item.id)
       : client.viewLanguageVariant().byItemCodename(item.codename);
   try {
-    await query.byLanguageCodename(languageCodename).published().toPromise();
-    return true;
+    return (await query.byLanguageCodename(languageCodename).published().toPromise()).data.elements;
   } catch (error) {
-    if (isNotFound(error)) return false;
+    if (isNotFound(error)) return undefined;
     throw error;
   }
 };
@@ -269,7 +278,7 @@ const matchEffects = ({ source, target }: { source: PublishingState; target: Pub
   const targetLive = target?.hasPublishedVersion ?? false;
 
   if (source.hasPublishedVersion) effects.push(targetLive ? "replaces live content" : "goes live");
-  else if (targetLive) effects.push("removed from live site");
+  else if (targetLive) effects.push("unpublished");
 
   // The toolkit cancels any schedule in the target before copying, then applies the source's.
   if (target?.publishTime || target?.unpublishTime) effects.push("schedule replaced");
@@ -292,11 +301,12 @@ const predictDrafts = ({
   latestStepName: string;
   firstStepName: string;
 }): Prediction => {
-  // Archived stays archived; the preview blocks the case where that would take a live target version offline.
-  if (source.stepKind === "archived") return { outcome: "Archived", effects: [] };
+  // Archived stays archived, unless the target is live: archiving would unpublish it, so the copied
+  // content becomes a draft next to the live version instead.
+  if (source.stepKind === "archived" && !target?.hasPublishedVersion) return { outcome: "Archived", effects: [] };
   const draftStep = stepLabel(source.stepKind === "draft" ? latestStepName : firstStepName);
   const outcome = target?.hasPublishedVersion
-    ? `Live version unchanged, with the copied content as a new draft in ${draftStep}`
+    ? `Published version unchanged, with the copied content as a new draft in ${draftStep}`
     : `Not published, in ${draftStep}`;
   // The toolkit cancels any schedule in the target before copying; drafts mode copies none.
   const effects: LiveEffect[] = target?.publishTime || target?.unpublishTime ? ["schedule cancelled"] : [];

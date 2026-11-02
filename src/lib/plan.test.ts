@@ -1,55 +1,46 @@
 import { describe, expect, test } from "vitest";
 
 import { planRow, publishingState } from "../test/fixtures";
-import { type Plan, type PlanRow, publishModeBlockers } from "./plan";
+import { type Plan, type PlanRow, publishModeBlockers, type Unarchivable } from "./plan";
 
-const planOf = (rows: readonly PlanRow[]): Plan => ({
-  rows,
+const planOf = (unarchivable: readonly Unarchivable[]): Plan => ({
+  rows: unarchivable.map((u) => u.row),
   blockers: [],
+  unarchivable,
   notes: [],
   deletedReferenceCount: 0,
+  missingAssetCount: 0,
   skippedVariants: [],
 });
 
-const archivedOverLive = planRow({
-  sourcePublishing: publishingState("archived"),
-  targetPublishing: publishingState("published"),
-});
+const unarchivable = (row: PlanRow): Unarchivable => ({ row, workflowName: "Marketing", firstStepName: "Copywriting" });
+const archived = planRow({ sourcePublishing: publishingState("archived") });
+const archivedOverLive = { ...archived, targetPublishing: publishingState("published") };
 
 describe("publishModeBlockers", () => {
-  test("blocks an item archived in the source but live in the target, in Copy as drafts", () => {
-    const blockers = publishModeBlockers(planOf([archivedOverLive]), "drafts", "Staging");
-    expect(blockers).toHaveLength(1);
-    expect(blockers[0]).toContain("live in Staging");
-    expect(blockers[0]).toContain("Item 1");
+  test("blocks an item that can't be archived in the target", () => {
+    for (const mode of ["match", "drafts"] as const) {
+      const blockers = publishModeBlockers(planOf([unarchivable(archived)]), mode);
+      expect(blockers).toHaveLength(1);
+      expect(blockers[0]).toContain('"Marketing" workflow');
+      expect(blockers[0]).toContain("Item 1");
+    }
   });
 
-  test("doesn't block it in Match the source, which unpublishes it on purpose", () => {
-    expect(publishModeBlockers(planOf([archivedOverLive]), "match", "Staging")).toEqual([]);
-  });
-
-  test("doesn't block an archived item that isn't live in the target", () => {
-    const rows = [
-      planRow({ sourcePublishing: publishingState("archived") }),
-      planRow({ sourcePublishing: publishingState("archived"), targetPublishing: publishingState("draft") }),
-    ];
-    expect(publishModeBlockers(planOf(rows), "drafts", "Staging")).toEqual([]);
-  });
-
-  test("blocks a draft over a published version in the target, which is live too", () => {
-    const row = planRow({
-      sourcePublishing: publishingState("archived"),
-      targetPublishing: publishingState("draft", { hasPublishedVersion: true }),
-    });
-    expect(publishModeBlockers(planOf([row]), "drafts", "Staging")).toHaveLength(1);
+  test("doesn't block it in Copy as drafts over a live target variant, which becomes a draft instead", () => {
+    expect(publishModeBlockers(planOf([unarchivable(archivedOverLive)]), "drafts")).toEqual([]);
+    expect(publishModeBlockers(planOf([unarchivable(archivedOverLive)]), "match")).toHaveLength(1);
   });
 
   test("names each item once, however many of its languages are affected", () => {
     const blockers = publishModeBlockers(
-      planOf([archivedOverLive, { ...archivedOverLive, languageCodename: "cs" }]),
-      "drafts",
-      "Staging",
+      planOf([unarchivable(archived), unarchivable({ ...archived, languageCodename: "cs" })]),
+      "match",
     );
     expect(blockers[0]?.match(/Item 1/g)).toHaveLength(1);
+  });
+
+  test("blocks nothing when every archived item can be archived", () => {
+    expect(publishModeBlockers(planOf([]), "match")).toEqual([]);
   });
 });

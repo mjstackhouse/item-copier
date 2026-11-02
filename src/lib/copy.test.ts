@@ -26,29 +26,38 @@ const data = (...items: MigrationItem[]): MigrationData => ({ items, assets: [] 
 const stepsOf = (result: MigrationData) => result.items.map((i) => i.versions.map((v) => v.workflow_step.codename));
 
 describe("toDrafts", () => {
+  const none = new Set<string>();
+
   test("drops the published version when there is a newer draft", () => {
-    expect(stepsOf(toDrafts(data(item([{ step: "published" }, { step: "review" }])), sourceSteps))).toEqual([
+    expect(stepsOf(toDrafts(data(item([{ step: "published" }, { step: "review" }])), sourceSteps, none))).toEqual([
       ["review"],
     ]);
   });
 
   test("moves a published-only item to the workflow's first step", () => {
-    expect(stepsOf(toDrafts(data(item([{ step: "published" }])), sourceSteps))).toEqual([["draft"]]);
-    expect(stepsOf(toDrafts(data(item([{ step: "published" }], "marketing")), sourceSteps))).toEqual([["copywriting"]]);
+    expect(stepsOf(toDrafts(data(item([{ step: "published" }])), sourceSteps, none))).toEqual([["draft"]]);
+    expect(stepsOf(toDrafts(data(item([{ step: "published" }], "marketing")), sourceSteps, none))).toEqual([
+      ["copywriting"],
+    ]);
   });
 
   test("moves a scheduled version to the first step and drops every schedule", () => {
-    const result = toDrafts(data(item([{ step: "scheduled", schedule }])), sourceSteps);
+    const result = toDrafts(data(item([{ step: "scheduled", schedule }])), sourceSteps, none);
     expect(stepsOf(result)).toEqual([["draft"]]);
     expect(result.items[0]?.versions[0]?.schedule).toBeUndefined();
   });
 
   test("keeps archived items archived", () => {
-    expect(stepsOf(toDrafts(data(item([{ step: "archived" }])), sourceSteps))).toEqual([["archived"]]);
+    expect(stepsOf(toDrafts(data(item([{ step: "archived" }])), sourceSteps, none))).toEqual([["archived"]]);
+  });
+
+  test("moves an archived item that is live in the target to the first step, so it stays live", () => {
+    const live = new Set(["article_1/en"]);
+    expect(stepsOf(toDrafts(data(item([{ step: "archived" }])), sourceSteps, live))).toEqual([["draft"]]);
   });
 
   test("tells the patched toolkit to leave the target's published version alone", () => {
-    expect(toDrafts(data(item([{ step: "review" }])), sourceSteps).items[0]).toHaveProperty(
+    expect(toDrafts(data(item([{ step: "review" }])), sourceSteps, none).items[0]).toHaveProperty(
       "keepTargetPublished",
       true,
     );

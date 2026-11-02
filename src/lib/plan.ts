@@ -1,13 +1,16 @@
 import {
   bulkGetLimit,
   type Connection,
+  findMissingAssetIds,
+  getItemsWithVariants,
   flattenTaxonomyTerms,
   flattenTypeElements,
   type SourceData,
   type TypeElementInfo,
+  type VariantElement,
   variantStateOf,
 } from "./kontent";
-import { expandWithLinkedItems, type PlannedItem } from "./linkedItems";
+import { expandWithLinkedItems, findReferencedAssetIds, findReferencedItemIds, type PlannedItem } from "./linkedItems";
 import {
   canArchiveFromFirstStep,
   findStep,
@@ -25,7 +28,7 @@ import {
   type WorkflowStepInfo,
   type WorkflowSteps,
 } from "./publishing";
-import { isNotFound, mapWithLimit, unique } from "./util";
+import { isNotFound, mapWithLimit, plural, unique } from "./util";
 
 export type TargetStatus = "new item" | "new language variant" | "overwrites existing";
 
@@ -50,6 +53,11 @@ export type Plan = {
   readonly rows: readonly PlanRow[];
   /** Problems that stop the copy from running. */
   readonly blockers: readonly string[];
+  /**
+   * Variants archived in the source whose target workflow can't move from its first step to Archived.
+   * Whether that blocks the copy depends on the publishing option: see `publishModeBlockers`.
+   */
+  readonly unarchivable: readonly Unarchivable[];
   /** Things worth knowing that are not a problem, such as steps the copy moves to another step. */
   readonly notes: readonly string[];
   /**
@@ -57,12 +65,21 @@ export type Plan = {
    * it is told to skip them, which the preview asks for.
    */
   readonly deletedReferenceCount: number;
+  /** References to assets that no longer exist in the source; the toolkit fails on them the same way. */
+  readonly missingAssetCount: number;
   /** Variants skipped because the item has no variant in that language in the source. Not a problem, just information. */
   readonly skippedVariants: readonly {
     readonly itemId: string;
     readonly itemName: string;
     readonly languageCodename: string;
   }[];
+};
+
+export type Unarchivable = {
+  readonly row: PlanRow;
+  readonly workflowName: string;
+  /** The name of the target workflow's first step. */
+  readonly firstStepName: string;
 };
 
 /**
@@ -103,7 +120,9 @@ export const buildPlan = async (params: {
   const skippedVariants = linked.withoutVariant.filter((w) => copiedIds.has(w.item.id) || !w.picked);
 
   if (pickedDeleted.length) {
-    blockers.push(`${pickedDeleted.length} selected item(s) no longer exist in the source. Go back and remove them.`);
+    blockers.push(
+      `${plural(pickedDeleted.length, "selected item")} no longer ${pickedDeleted.length === 1 ? "exists" : "exist"} in the source. Go back and remove ${pickedDeleted.length === 1 ? "it" : "them"}.`,
+    );
   }
   if (pickedInNoLanguage.length) {
     blockers.push(
@@ -181,7 +200,6 @@ export const buildPlan = async (params: {
     );
     return required?.codename ?? step.workflowCodename;
   };
-  blockers.push(...checkArchiving(sourceData.workflowSteps, targetSteps, known, targetWorkflowOf));
   const notes = describeWorkflowLanding(sourceData.workflowSteps, targetSteps, known, targetWorkflowOf);
 
   const sourceFirstSteps = firstSteps(sourceData.workflowSteps);
@@ -195,13 +213,16 @@ export const buildPlan = async (params: {
     known,
     new Map(targetLanguages.data.items.map((l) => [l.id, l.codename])),
   );
+  // The toolkit also copies the published version of a variant whose latest version is a newer draft,
+  // so the references in that version must exist too.
+  const olderPublished: { readonly languageCodename: string; readonly elements: readonly VariantElement[] }[] = [];
   // Two at a time: requests are paced anyway, and the Management API advises against parallel requests.
   const rows = await mapWithLimit(known, 2, async (planned): Promise<PlanRow> => {
     const { languageCodename } = planned;
     const typeCodename = sourceData.typesById.get(planned.item.typeId)?.codename ?? "";
     const sourceStep = findStep(sourceData.workflowSteps, planned.state);
     const targetWorkflow = targetWorkflowOf(planned);
-    const [sourceState, targetState] = await Promise.all([
+    const [sourceResult, targetState] = await Promise.all([
       getPublishingState({
         client: source.client,
         steps: sourceData.workflowSteps,
@@ -211,17 +232,28 @@ export const buildPlan = async (params: {
       }),
       getTargetState(target, targetSteps, targetVariants, planned.item.codename, languageCodename),
     ]);
+    if (sourceResult.olderPublishedElements) {
+      olderPublished.push({ languageCodename, elements: sourceResult.olderPublishedElements });
+    }
     return {
       ...planned,
       typeCodename,
       targetTypeCodename: targetState.typeId ? targetTypeCodenames.get(targetState.typeId) : undefined,
       targetStatus: targetState.status,
-      sourcePublishing: sourceState,
+      sourcePublishing: sourceResult.state,
       targetPublishing: targetState.publishing,
       targetWorkflowCodename: targetWorkflow,
       ...landingSteps(sourceStep, sourceFirstSteps, targetSteps, targetWorkflow),
     };
   });
+
+  const olderReferences = await findMissingInOlderVersions(source, olderPublished, sourceData.elementTypes, {
+    existing: new Set([...copiedIds, ...linked.withoutVariant.map((w) => w.item.id)]),
+    deleted: new Set(linked.deletedIds),
+  });
+  const assetIds = unique([...linked.assetIds, ...olderReferences.assetIds]);
+  if (assetIds.length) params.onProgress(`Checking the ${plural(assetIds.length, "asset")} the items use`);
+  const missingAssetIds = await findMissingAssetIds(source.client, assetIds);
 
   const typeMismatches = unique(
     rows
@@ -249,8 +281,10 @@ export const buildPlan = async (params: {
   return {
     rows,
     blockers,
+    unarchivable: findUnarchivable(targetSteps, rows),
     notes,
-    deletedReferenceCount: deletedReferences.length,
+    deletedReferenceCount: deletedReferences.length + olderReferences.deletedIds.length,
+    missingAssetCount: missingAssetIds.length,
     skippedVariants: skippedVariants.map((w) => ({
       itemId: w.item.id,
       itemName: w.item.name,
@@ -322,14 +356,40 @@ const getTargetState = async (
   const latest = variants.latest.get(`${codename}/${languageCodename}`);
   if (!latest) return { status: "new language variant", typeId };
 
-  const publishing = await getPublishingState({
+  const { state } = await getPublishingState({
     client: target.client,
     steps,
     item: { codename },
     languageCodename,
     latest,
   });
-  return { status: "overwrites existing", typeId, publishing };
+  return { status: "overwrites existing", typeId, publishing: state };
+};
+
+/**
+ * Finds the references in older published versions (see `getPublishingState`) to items that no longer
+ * exist, and collects the assets those versions use. Items already known to exist or not are not looked up again.
+ */
+const findMissingInOlderVersions = async (
+  source: Connection,
+  versions: readonly { readonly languageCodename: string; readonly elements: readonly VariantElement[] }[],
+  elementTypes: ReadonlyMap<string, string>,
+  known: { readonly existing: ReadonlySet<string>; readonly deleted: ReadonlySet<string> },
+): Promise<{ readonly deletedIds: readonly string[]; readonly assetIds: readonly string[] }> => {
+  const assetIds = new Set<string>();
+  const unknownIds = new Set<string>();
+  for (const { elements } of versions) {
+    for (const id of findReferencedAssetIds(elements, elementTypes)) assetIds.add(id);
+    for (const id of findReferencedItemIds(elements, elementTypes)) {
+      if (!known.existing.has(id) && !known.deleted.has(id)) unknownIds.add(id);
+    }
+  }
+  // Whether an item exists doesn't depend on the language; the bulk request just needs one.
+  const languageCodename = versions[0]?.languageCodename ?? "";
+  const found = unknownIds.size
+    ? await getItemsWithVariants(source.client, [...unknownIds], languageCodename)
+    : new Map();
+  return { deletedIds: [...unknownIds].filter((id) => !found.has(id)), assetIds: [...assetIds] };
 };
 
 const namesOf = (items: readonly PlannedItem[]) => unique(items.map((p) => p.item.name)).join(", ");
@@ -411,8 +471,8 @@ const describeWorkflowLanding = (
   }
   return [...moves.values()].map(({ from, to, items: moved }) =>
     to.workflowCodename !== from.workflowCodename
-      ? `In the target, the workflow scopes require the "${to.workflowName}" workflow for these items' content type and collection, so ${moved.length} variant(s) in the "${from.workflowName}" workflow will go to its "${to.name}" step instead: ${namesOf(moved)}.`
-      : `The target's "${from.workflowName}" workflow has no "${from.name}" step, so ${moved.length} variant(s) in it will go to its "${to.name}" step instead: ${namesOf(moved)}.`,
+      ? `In the target, the workflow scopes require the "${to.workflowName}" workflow for these items' content type and collection, so ${plural(moved.length, "variant")} in the "${from.workflowName}" workflow will go to its "${to.name}" step instead: ${namesOf(moved)}.`
+      : `The target's "${from.workflowName}" workflow has no "${from.name}" step, so ${plural(moved.length, "variant")} in it will go to its "${to.name}" step instead: ${namesOf(moved)}.`,
   );
 };
 
@@ -421,25 +481,21 @@ const describeWorkflowLanding = (
  * variant in the workflow's first step and then moves it to Archived; when the target's workflow doesn't
  * allow that move, the copy is blocked rather than leaving the item as a draft.
  */
-const checkArchiving = (
-  sourceSteps: WorkflowSteps,
-  targetSteps: WorkflowSteps,
-  items: readonly PlannedItem[],
-  targetWorkflowOf: (p: PlannedItem) => string,
-): string[] => {
+const findUnarchivable = (targetSteps: WorkflowSteps, rows: readonly PlanRow[]): Unarchivable[] => {
   const targetWorkflows = new Set([...targetSteps.values()].map((s) => s.workflowCodename));
-  const stuck = new Map<string, PlannedItem[]>();
-  for (const p of items) {
-    if (findStep(sourceSteps, p.state)?.kind !== "archived") continue;
-    const workflow = targetWorkflowOf(p);
+  return rows.flatMap((row) => {
+    const workflow = row.targetWorkflowCodename;
     // A workflow missing in the target is reported by the workflow check.
-    if (!targetWorkflows.has(workflow) || canArchiveFromFirstStep(targetSteps, workflow)) continue;
-    stuck.set(workflow, [...(stuck.get(workflow) ?? []), p]);
-  }
-  return [...stuck.entries()].map(([workflow, archived]) => {
+    if (row.sourcePublishing.stepKind !== "archived" || !targetWorkflows.has(workflow)) return [];
+    if (canArchiveFromFirstStep(targetSteps, workflow)) return [];
     const steps = stepsInWorkflow(targetSteps, workflow);
-    const first = steps.find((s) => s.kind === "draft");
-    return `These items are archived in the source, but in the target's "${steps[0]?.workflowName ?? workflow}" workflow the first step ("${first?.name ?? "?"}") can't move to Archived, so they can't be copied as archived: ${namesOf(archived)}. Allow that move in the target's workflow, or leave these items out (for linked items, lower the linked items depth).`;
+    return [
+      {
+        row,
+        workflowName: steps[0]?.workflowName ?? workflow,
+        firstStepName: steps.find((s) => s.kind === "draft")?.name ?? "?",
+      },
+    ];
   });
 };
 
@@ -533,19 +589,19 @@ const checkTaxonomyTerms = (
 
 /**
  * Blockers that depend on the publishing option, which can change after the preview is built.
- * "Copy as drafts" keeps archived items archived, but archiving a variant that is live in the target
- * would take it offline, which that option promises not to do.
+ * An archived variant that can't be archived in the target blocks the copy, except in "Copy as drafts"
+ * over a variant that is live in the target, which becomes a draft instead of being archived.
  */
-export const publishModeBlockers = (plan: Plan, mode: PublishMode, targetEnvironmentName: string): string[] => {
-  if (mode !== "drafts") return [];
-  const archivedOverLive = plan.rows.filter(
-    (r) => r.sourcePublishing?.stepKind === "archived" && r.targetPublishing?.hasPublishedVersion,
+export const publishModeBlockers = (plan: Plan, mode: PublishMode): string[] => {
+  const byWorkflow = new Map<string, Unarchivable[]>();
+  for (const u of plan.unarchivable) {
+    if (mode === "drafts" && u.row.targetPublishing?.hasPublishedVersion) continue;
+    byWorkflow.set(u.workflowName, [...(byWorkflow.get(u.workflowName) ?? []), u]);
+  }
+  return [...byWorkflow.entries()].map(
+    ([workflowName, list]) =>
+      `These items are archived in the source, but in the target's "${workflowName}" workflow the first step ("${list[0]?.firstStepName}") can't move to Archived, so they can't be copied as archived: ${namesOf(list.map((u) => u.row))}. Allow that move in the target's workflow, or leave these items out (for linked items, lower the linked items depth).`,
   );
-  return archivedOverLive.length
-    ? [
-        `These items are archived in the source but live in ${targetEnvironmentName}. Copying them as archived would take them offline, which "Copy as drafts" doesn't do: ${unique(archivedOverLive.map((r) => r.item.name)).join(", ")}. Choose "Match the source", or leave these items out.`,
-      ]
-    : [];
 };
 
 /** What the copy will do to one row in the target with the chosen publishing option. */

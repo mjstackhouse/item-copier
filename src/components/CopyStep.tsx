@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 
 import { type CopyResult, copyItems, type LogEntry } from "../lib/copy";
-import type { Connection } from "../lib/kontent";
+import { type Connection, editItemUrl } from "../lib/kontent";
 import type { Plan } from "../lib/plan";
 import type { PublishMode, WorkflowSteps } from "../lib/publishing";
+import { buildReport } from "../lib/report";
 import type { Selection } from "../lib/selection";
-import { errorMessage } from "../lib/util";
+import { errorMessage, plural } from "../lib/util";
 import { Message } from "./ui";
 
 type Props = {
@@ -39,6 +40,7 @@ export const CopyStep = ({ source, target, selection, plan, publishMode, sourceW
         itemCodename: r.item.codename,
         languageCodename: r.languageCodename,
         targetWorkflowCodename: r.targetWorkflowCodename,
+        liveInTarget: r.targetPublishing?.hasPublishedVersion,
       })),
       skipMissingReferences: selection.skipMissingReferences,
       publishMode,
@@ -73,6 +75,27 @@ export const CopyStep = ({ source, target, selection, plan, publishMode, sourceW
     abort.current.abort();
   };
 
+  const downloadReport = () => {
+    const createdAt = new Date();
+    const report = buildReport({
+      source,
+      target,
+      selection,
+      languageCodenames: [...new Set(plan.rows.map((r) => r.languageCodename))],
+      publishMode,
+      result,
+      error,
+      log,
+      createdAt,
+    });
+    const url = URL.createObjectURL(new Blob([report], { type: "text/plain" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `item-copier-report-${createdAt.toISOString().slice(0, 16).replace(/[T:]/g, "-")}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <section>
       <h2>
@@ -86,11 +109,6 @@ export const CopyStep = ({ source, target, selection, plan, publishMode, sourceW
               ? "Copy cancelled"
               : "Copy finished"}
       </h2>
-      {running && (
-        <p className="loading-general" role="status">
-          {cancelling ? "Stopping after the current item" : "Copying"}
-        </p>
-      )}
       {running && !cancelling && <Message kind="warning">Keep this tab open until the copy finishes.</Message>}
       {running && cancelling && (
         <Message kind="warning">
@@ -105,8 +123,9 @@ export const CopyStep = ({ source, target, selection, plan, publishMode, sourceW
         )}
         {cancelled && summary && (
           <Message kind="warning">
-            The copy stopped partway. {summary.variantsCancelled} language variant(s) were not copied. You can copy the
-            same items again later: items that were already copied are updated, not duplicated.
+            The copy stopped partway. {plural(summary.variantsCancelled, "language variant")}{" "}
+            {summary.variantsCancelled === 1 ? "was" : "were"} not copied. You can copy the same items again later:
+            items that were already copied are updated, not duplicated.
           </Message>
         )}
 
@@ -126,16 +145,18 @@ export const CopyStep = ({ source, target, selection, plan, publishMode, sourceW
             </p>
             {summary.itemsNotRead.length > 0 && (
               <p>
-                {summary.itemsNotRead.length} language variant(s) could not be read from the source and were not copied:{" "}
-                {summary.itemsNotRead.join(", ")}. Check them in the source, for example for a workflow step, collection
-                or element value the copy can't handle.
+                {plural(summary.itemsNotRead.length, "language variant")} could not be read from the source and{" "}
+                {summary.itemsNotRead.length === 1 ? "was" : "were"} not copied: {summary.itemsNotRead.join(", ")}.
+                Check them in the source, for example for a workflow step, collection or element value the copy can't
+                handle.
               </p>
             )}
             {summary.assetsMovedToRoot.length > 0 && (
               <p>
-                {summary.assetsMovedToRoot.length} asset(s) were placed in the root folder, because their folder doesn't
-                exist in the target: {summary.assetsMovedToRoot.join(", ")}. Move them, or create the folders and copy
-                again.
+                {plural(summary.assetsMovedToRoot.length, "asset")}{" "}
+                {summary.assetsMovedToRoot.length === 1 ? "was" : "were"} placed in the root folder, because{" "}
+                {summary.assetsMovedToRoot.length === 1 ? "its" : "their"} folder doesn't exist in the target:{" "}
+                {summary.assetsMovedToRoot.join(", ")}. Move them, or create the folders and copy again.
               </p>
             )}
             {summary.errors.length > 0 && (
@@ -153,6 +174,33 @@ export const CopyStep = ({ source, target, selection, plan, publishMode, sourceW
           </Message>
         )}
       </div>
+
+      {summary && summary.copied.length > 0 && (
+        <details className="card settings-card copied-list">
+          <summary>
+            <span className="section-heading">Copied language variants ({summary.copied.length})</span>
+            <span className="muted">Open them in {target.environmentName}</span>
+          </summary>
+          <ul>
+            {summary.copied.map((c) => (
+              <li key={`${c.codename}-${c.languageCodename}`}>
+                {c.targetItemId ? (
+                  <a
+                    href={editItemUrl(target.environmentId, c.languageCodename, c.targetItemId)}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {c.name}
+                  </a>
+                ) : (
+                  c.name
+                )}{" "}
+                <span className="muted">{c.languageCodename}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       <section className="log-panel" aria-label="Progress log">
         <p className="section-heading">Progress log</p>
@@ -174,6 +222,11 @@ export const CopyStep = ({ source, target, selection, plan, publishMode, sourceW
         {running && (
           <button type="button" className="btn back-btn" disabled={cancelling} onClick={cancel}>
             {cancelling ? "Cancelling…" : "Cancel copy"}
+          </button>
+        )}
+        {!running && (
+          <button type="button" className="btn back-btn" onClick={downloadReport}>
+            Download report
           </button>
         )}
         <button type="button" className="btn continue-btn" disabled={running} onClick={onStartOver}>

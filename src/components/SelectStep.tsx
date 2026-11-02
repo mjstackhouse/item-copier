@@ -257,7 +257,22 @@ export const SelectStep = ({
               <option value={1}>Yes, 1 level deep</option>
               <option value={2}>Yes, 2 levels deep</option>
               <option value={3}>Yes, 3 levels deep</option>
+              <option value={allLevels}>Yes, all linked items</option>
             </select>
+          </div>
+
+          <div className="field">
+            <div className="field-label">
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={selection.skipMissingReferences}
+                  onChange={(e) => onChange({ ...selection, skipMissingReferences: e.target.checked })}
+                />
+                Skip missing references
+              </label>
+              <Tooltip text="References to items or assets that were deleted in the source are left out of the copied content. Without this, the copy stops at the first one. The preview tells you if there are any." />
+            </div>
           </div>
         </div>
       </details>
@@ -266,7 +281,7 @@ export const SelectStep = ({
         <button type="button" className="btn back-btn" onClick={onBack}>
           Back
         </button>
-        <span className="muted">{selection.pickedItems.length} selected</span>
+        <span className="muted actions-hint">{selection.pickedItems.length} selected</span>
         <button
           type="button"
           className="btn continue-btn"
@@ -280,6 +295,9 @@ export const SelectStep = ({
   );
 };
 
+// Follows links until there are none left. A select option's value is a string, and Number("Infinity") is Infinity.
+const allLevels = Number.POSITIVE_INFINITY;
+
 /** One line describing the copy settings, shown while they are collapsed. */
 const describeSettings = (selection: Selection, sourceData: SourceData): string => {
   const parts: string[] = [];
@@ -288,15 +306,22 @@ const describeSettings = (selection: Selection, sourceData: SourceData): string 
     const chosen = languagesToCopy(selection, languages);
     parts.push(
       selection.copyAllLanguages
-        ? `all ${languages.length} languages`
+        ? `All ${languages.length} languages`
         : chosen.length === 0
-          ? "no languages chosen"
+          ? "No languages chosen"
           : chosen.length <= 3
-            ? chosen.join(", ")
+            ? chosen.map((c) => languages.find((l) => l.codename === c)?.name ?? c).join(", ")
             : `${chosen.length} languages`,
     );
   }
   const depth = selection.linkedItemsDepth;
-  parts.push(depth === 0 ? "no linked items" : `linked items ${depth} level${depth === 1 ? "" : "s"} deep`);
+  parts.push(
+    depth === 0
+      ? "No linked items"
+      : depth === allLevels
+        ? "All linked items"
+        : `Linked items ${depth} level${depth === 1 ? "" : "s"} deep`,
+  );
+  if (selection.skipMissingReferences) parts.push("Skip missing references");
   return parts.join(" · ");
 };

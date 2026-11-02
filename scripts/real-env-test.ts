@@ -11,7 +11,7 @@
  *
  * Options:
  *   --languages=en-US,cs   languages to copy (default: all active languages in the source)
- *   --depth=N              levels of linked items to follow, 0 to 3 (default: 1)
+ *   --depth=N              levels of linked items to follow, or "all" (default: 1)
  *   --drafts               "Copy as drafts" instead of "Match the source"
  *   --skip-deleted         skip references to items that no longer exist in the source
  *   --cancel-after=N       press "Cancel copy" after N language variants have been imported
@@ -28,7 +28,7 @@ import type { PublishMode } from "../src/lib/publishing";
 import { errorMessage } from "../src/lib/util";
 
 const usage =
-  "Usage: npm run test:real -- <plan|copy> <item codename>... [--languages=a,b] [--depth=N] [--drafts] [--skip-deleted] [--cancel-after=N] [--verbose] [--yes]";
+  "Usage: npm run test:real -- <plan|copy> <item codename>... [--languages=a,b] [--depth=N|all] [--drafts] [--skip-deleted] [--cancel-after=N] [--verbose] [--yes]";
 
 type Options = {
   readonly command: "plan" | "copy";
@@ -55,8 +55,11 @@ const parseArgs = (args: readonly string[]): Options => {
   );
   const codenames = rest.filter((a) => !a.startsWith("--"));
   if (!codenames.length) throw new Error(usage);
-  const depth = Number(flags.get("depth") ?? 1);
-  if (!Number.isInteger(depth) || depth < 0 || depth > 3) throw new Error("--depth must be 0 to 3.");
+  const depthFlag = flags.get("depth") ?? "1";
+  const depth = depthFlag === "all" ? Number.POSITIVE_INFINITY : Number(depthFlag);
+  if (depth !== Number.POSITIVE_INFINITY && (!Number.isInteger(depth) || depth < 0)) {
+    throw new Error('--depth must be a whole number or "all".');
+  }
 
   return {
     command,
@@ -156,14 +159,14 @@ const main = async () => {
 
   const planStarted = Date.now();
   const plan = await runPlan({ source, target, sourceData, pickedIds, languages, depth: options.depth });
-  const blockers = [...plan.blockers, ...publishModeBlockers(plan, options.mode, target.environmentName)];
+  const blockers = [...plan.blockers, ...publishModeBlockers(plan, options.mode)];
   printPlan(plan, options.mode, blockers);
   console.log(`  Preview took ${seconds(planStarted)}`);
   if (options.command === "plan") return;
 
   if (blockers.length) throw new Error("The preview has blockers, so the copy would not be allowed.");
-  if (plan.deletedReferenceCount > 0 && !options.skipDeleted) {
-    throw new Error("The preview found references to deleted items. Run again with --skip-deleted.");
+  if (plan.deletedReferenceCount + plan.missingAssetCount > 0 && !options.skipDeleted) {
+    throw new Error("The preview found references to deleted items or assets. Run again with --skip-deleted.");
   }
   if (!options.yes) {
     console.log(`\nNothing was copied. Run again with --yes to copy into "${target.environmentName}".`);
@@ -222,7 +225,8 @@ const printPlan = (plan: Plan, mode: PublishMode, blockers: readonly string[]) =
   }
   for (const b of blockers) console.log(`  BLOCKER: ${b}`);
   for (const n of plan.notes) console.log(`  NOTE: ${n}`);
-  if (plan.deletedReferenceCount) console.log(`  Deleted references: ${plan.deletedReferenceCount}`);
+  if (plan.deletedReferenceCount) console.log(`  Deleted items referenced: ${plan.deletedReferenceCount}`);
+  if (plan.missingAssetCount) console.log(`  Deleted assets referenced: ${plan.missingAssetCount}`);
   if (plan.skippedVariants.length) {
     console.log(
       `  Skipped (no variant in the source): ${plan.skippedVariants.map((v) => `${v.itemName} (${v.languageCodename})`).join(", ")}`,
@@ -253,6 +257,7 @@ const runCopy = async (params: {
       itemCodename: r.item.codename,
       languageCodename: r.languageCodename,
       targetWorkflowCodename: r.targetWorkflowCodename,
+      liveInTarget: r.targetPublishing?.hasPublishedVersion,
     })),
     skipMissingReferences: options.skipDeleted,
     publishMode: options.mode,

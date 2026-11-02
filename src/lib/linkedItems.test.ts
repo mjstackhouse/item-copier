@@ -1,13 +1,22 @@
-import { describe, expect, test } from "vitest";
+import type { ManagementClient } from "@kontent-ai/management-sdk";
+import { describe, expect, test, vi } from "vitest";
 
-import type { VariantElement } from "./kontent";
-import { findReferencedItemIds, findTaxonomyTermIds } from "./linkedItems";
+import { getItemsWithVariants, type ItemWithVariant, type VariantElement } from "./kontent";
+import {
+  expandWithLinkedItems,
+  findReferencedAssetIds,
+  findReferencedItemIds,
+  findTaxonomyTermIds,
+} from "./linkedItems";
+
+vi.mock("./kontent", () => ({ getItemsWithVariants: vi.fn() }));
 
 const elementTypes = new Map([
   ["links", "modular_content"],
   ["subpages", "subpages"],
   ["body", "rich_text"],
   ["tags", "taxonomy"],
+  ["image", "asset"],
   ["title", "text"],
 ]);
 
@@ -75,5 +84,67 @@ describe("findTaxonomyTermIds", () => {
       elementTypes,
     );
     expect([...ids]).toEqual(["t1", "t2"]);
+  });
+});
+
+describe("findReferencedAssetIds", () => {
+  test("finds assets in asset elements, rich-text images and links, and components", () => {
+    const body = '<figure data-asset-id="figure"><img src="#"></figure><p><a data-asset-id="link">file</a></p>';
+    const ids = findReferencedAssetIds(
+      [
+        element("image", [{ id: "element" }]),
+        element("body", body, [{ elements: [element("image", [{ id: "in-component" }])] }]),
+      ],
+      elementTypes,
+    );
+    expect([...ids].sort()).toEqual(["element", "figure", "in-component", "link"]);
+  });
+});
+
+describe("expandWithLinkedItems", () => {
+  const variant = (id: string, links: readonly string[]): ItemWithVariant => ({
+    item: { id, codename: id, name: id, typeId: "type", collectionId: "collection" },
+    elements: [
+      element(
+        "links",
+        links.map((l) => ({ id: l })),
+      ),
+    ],
+    state: { workflowId: "w", stepId: "s", publishTime: null, unpublishTime: null },
+  });
+  // "picked" links to "linked", which links to "deleted", which no longer exists.
+  const source = new Map([
+    ["picked", variant("picked", ["linked"])],
+    ["linked", variant("linked", ["deleted"])],
+  ]);
+  vi.mocked(getItemsWithVariants).mockImplementation(
+    async (_client, ids) =>
+      new Map(ids.flatMap((id) => (source.has(id) ? [[id, source.get(id) as ItemWithVariant]] : []))),
+  );
+  const expand = (maxDepth: number) =>
+    expandWithLinkedItems({
+      client: {} as ManagementClient,
+      pickedIds: ["picked"],
+      languageCodenames: ["en"],
+      maxDepth,
+      elementTypes,
+    });
+
+  test("finds a deleted item linked from beyond the chosen depth, without copying the linked items", async () => {
+    const result = await expand(1);
+    expect(result.items.map((i) => i.id)).toEqual(["picked", "linked"]);
+    expect(result.deletedIds).toEqual(["deleted"]);
+  });
+
+  test("follows every level with an unlimited depth", async () => {
+    const result = await expand(Number.POSITIVE_INFINITY);
+    expect(result.items.map((i) => i.id)).toEqual(["picked", "linked"]);
+    expect(result.deletedIds).toEqual(["deleted"]);
+  });
+
+  test("with depth 0, copies only the picked items but still checks their links", async () => {
+    const result = await expand(0);
+    expect(result.items.map((i) => i.id)).toEqual(["picked"]);
+    expect(result.deletedIds).toEqual([]);
   });
 });

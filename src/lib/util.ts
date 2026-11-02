@@ -33,3 +33,7 @@ export const mapWithLimit = async <TIn, TOut>(
 };
 
 export const unique = <T>(values: readonly T[]): T[] => [...new Set(values)];
+
+/** "1 item", "2 items": a count with the noun in the right form. */
+export const plural = (count: number, singular: string, pluralForm = `${singular}s`): string =>
+  `${count} ${count === 1 ? singular : pluralForm}`;

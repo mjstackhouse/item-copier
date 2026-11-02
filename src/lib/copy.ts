@@ -23,6 +23,15 @@ export type LogEntry = LogMessage & {
   readonly time: Date;
 };
 
+/** A language variant the copy wrote to the target. */
+export type CopiedVariant = {
+  readonly name: string;
+  readonly codename: string;
+  readonly languageCodename: string;
+  /** The item's id in the target; undefined if the toolkit didn't report it. */
+  readonly targetItemId?: string;
+};
+
 export type CopySummary = {
   readonly itemsOk: number;
   readonly itemsFailed: number;
@@ -43,6 +52,7 @@ export type CopySummary = {
    * asset folders, and the toolkit fails an asset whose folder is missing.
    */
   readonly assetsMovedToRoot: readonly string[];
+  readonly copied: readonly CopiedVariant[];
   readonly errors: readonly string[];
 };
 
@@ -91,6 +101,8 @@ export const copyItems = async (params: {
     readonly languageCodename: string;
     /** The workflow to put the variant in, when the target requires a different one than the source's. */
     readonly targetWorkflowCodename?: string;
+    /** True when the target's variant has a published version ("Copy as drafts" keeps it live). */
+    readonly liveInTarget?: boolean;
   }[];
   readonly skipMissingReferences: boolean;
   readonly publishMode: PublishMode;
@@ -160,7 +172,15 @@ export const copyItems = async (params: {
       .filter((k) => !read.has(k));
 
     const published =
-      params.publishMode === "drafts" ? toDrafts(migrationData, params.sourceWorkflowSteps) : migrationData;
+      params.publishMode === "drafts"
+        ? toDrafts(
+            migrationData,
+            params.sourceWorkflowSteps,
+            new Set(
+              params.variants.filter((v) => v.liveInTarget).map((v) => `${v.itemCodename}/${v.languageCodename}`),
+            ),
+          )
+        : migrationData;
     const targetWorkflows = new Map(
       params.variants.flatMap((v) =>
         v.targetWorkflowCodename
@@ -197,11 +217,17 @@ export const copyItems = async (params: {
 
 /**
  * Rewrites the exported data so the import publishes nothing: the published version is dropped when
- * there is a newer draft, and any published, scheduled or archived version moves to the workflow's
- * first step without a schedule. `keepTargetPublished` is read by this app's patch to the toolkit
+ * there is a newer draft, and any published or scheduled version moves to the workflow's first step
+ * without a schedule. Archived versions stay archived, except over a variant that is live in the target:
+ * archiving would unpublish it, so they move to the first step too. `keepTargetPublished` is read by this app's patch to the toolkit
  * (see patches/), which otherwise unpublishes target items whose import data has no published version.
  */
-export const toDrafts = (data: MigrationData, steps: WorkflowSteps): MigrationData => {
+export const toDrafts = (
+  data: MigrationData,
+  steps: WorkflowSteps,
+  /** "codename/language" of the variants that are live in the target. */
+  liveInTarget: ReadonlySet<string>,
+): MigrationData => {
   const first = firstSteps(steps);
 
   return {
@@ -209,13 +235,15 @@ export const toDrafts = (data: MigrationData, steps: WorkflowSteps): MigrationDa
     items: data.items.map((item) => {
       const workflow = item.system.workflow.codename;
       const firstStep = first.get(workflow)?.codename;
+      // Archiving is a deliberate decision, so it is kept where it doesn't unpublish anything.
+      const keptKinds = liveInTarget.has(`${item.system.codename}/${item.system.language.codename}`)
+        ? ["draft"]
+        : ["draft", "archived"];
       const drafts = item.versions.filter((v) => stepKindOf(steps, workflow, v.workflow_step.codename) !== "published");
       const versions = (drafts.length ? drafts : item.versions).map((v) => ({
         ...v,
-        // Archived stays archived: archiving is a deliberate decision (the preview blocks the cases where
-        // that isn't possible).
         workflow_step:
-          ["draft", "archived"].includes(stepKindOf(steps, workflow, v.workflow_step.codename)) || !firstStep
+          keptKinds.includes(stepKindOf(steps, workflow, v.workflow_step.codename)) || !firstStep
             ? v.workflow_step
             : { codename: firstStep },
         schedule: undefined,
@@ -297,6 +325,9 @@ const summarize = (
   const isCancelled = (r: { state: string; error?: unknown }) => r.error instanceof CopyCancelledError;
   const isFailed = (r: { state: string; error?: unknown }) => r.state !== "valid" && !isCancelled(r);
   const failed = [...contentItems, ...languageVariants, ...uploadedAssets, ...editedAssets].filter(isFailed);
+  const targetItemIds = new Map(
+    contentItems.flatMap((r) => (r.state === "valid" ? [[r.inputItem.system.codename, r.outputItem.id] as const] : [])),
+  );
   const written = new Set([
     ...uploadedAssets.filter((r) => r.state === "valid").map((r) => r.inputItem.codename),
     ...editedAssets.filter((r) => r.state === "valid").map((r) => r.inputItem.migrationAsset.codename),
@@ -315,6 +346,18 @@ const summarize = (
     assetsMovedToRoot: movedToRoot
       .filter(({ codename }) => written.has(codename))
       .map(({ codename, folder }) => `${codename} (${folder})`),
+    copied: languageVariants.flatMap((r) =>
+      r.state === "valid"
+        ? [
+            {
+              name: r.inputItem.system.name,
+              codename: r.inputItem.system.codename,
+              languageCodename: r.inputItem.system.language.codename,
+              targetItemId: targetItemIds.get(r.inputItem.system.codename),
+            },
+          ]
+        : [],
+    ),
     errors: failed.map((r) => describeError(r)),
   };
 };

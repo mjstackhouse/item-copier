@@ -35,10 +35,10 @@ describe("predict, Match the source", () => {
     ]);
   });
 
-  test("an item that isn't published in the source is removed from the target's live site", () => {
+  test("an item that isn't published in the source is unpublished in the target", () => {
     const result = match(publishingState("draft"), publishingState("published"));
     expect(result.outcome).toBe("Not published, in the Review step");
-    expect(result.effects).toEqual(["removed from live site"]);
+    expect(result.effects).toEqual(["unpublished"]);
   });
 
   test("a draft over a published version stays published", () => {
@@ -76,7 +76,7 @@ describe("predict, Copy as drafts", () => {
 
   test("a live target version stays live, with the copy as a draft in the first step", () => {
     expect(drafts(publishingState("published"), publishingState("published"))).toEqual({
-      outcome: "Live version unchanged, with the copied content as a new draft in the Draft step",
+      outcome: "Published version unchanged, with the copied content as a new draft in the Draft step",
       effects: [],
     });
   });
@@ -96,6 +96,13 @@ describe("predict, Copy as drafts", () => {
 
   test("an archived item stays archived", () => {
     expect(drafts(publishingState("archived"))).toEqual({ outcome: "Archived", effects: [] });
+  });
+
+  test("an archived item that is live in the target becomes a draft next to the live version", () => {
+    expect(drafts(publishingState("archived"), publishingState("published"))).toEqual({
+      outcome: "Published version unchanged, with the copied content as a new draft in the Draft step",
+      effects: [],
+    });
   });
 
   test("an unknown step is described as such", () => {

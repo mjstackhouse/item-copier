@@ -2,7 +2,7 @@ import { type ContentTypeElements, ManagementClient } from "@kontent-ai/manageme
 
 import { createPacedHttpService } from "./pacedHttp";
 import { loadWorkflowSteps, type VariantState, type WorkflowSteps } from "./publishing";
-import { isNotFound } from "./util";
+import { isNotFound, mapWithLimit } from "./util";
 
 export type Connection = {
   readonly environmentId: string;
@@ -201,7 +201,7 @@ export const loadSourceData = async (client: ManagementClient): Promise<SourceDa
 /** The parts of a variant element (as the API returns it) needed to find referenced items. */
 export type VariantElement = {
   readonly element: { readonly id?: string };
-  readonly value: unknown;
+  readonly value?: unknown;
   readonly components?: readonly { readonly elements: readonly VariantElement[] }[];
 };
 
@@ -376,3 +376,22 @@ export const getItemsWithVariants = async (
 
   return result;
 };
+
+/** The ids of these assets that no longer exist. One request per asset: there is no bulk get for assets. */
+export const findMissingAssetIds = async (client: ManagementClient, ids: readonly string[]): Promise<string[]> => {
+  // Two at a time: requests are paced anyway, and the Management API advises against parallel requests.
+  const missing = await mapWithLimit(ids, 2, async (id) => {
+    try {
+      await client.viewAsset().byAssetId(id).toPromise();
+      return undefined;
+    } catch (error) {
+      if (isNotFound(error)) return id;
+      throw error;
+    }
+  });
+  return missing.filter((id): id is string => id !== undefined);
+};
+
+/** Opens the variant's editor in the Kontent.ai app, the documented "edit link" pattern. */
+export const editItemUrl = (environmentId: string, languageCodename: string, itemId: string): string =>
+  `https://app.kontent.ai/goto/edit-item/project/${environmentId}/variant-codename/${encodeURIComponent(languageCodename)}/item/${itemId}`;

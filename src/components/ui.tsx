@@ -53,6 +53,27 @@ export const Tooltip = ({ text }: { readonly text: string }) => {
   );
 };
 
+/** The {#} icon the Kontent.ai app uses for codenames: shows the codename on hover or keyboard focus. */
+export const Codename = ({ codename }: { readonly codename: string }) => {
+  const id = useId();
+  return (
+    <span className="tooltip codename">
+      <button
+        type="button"
+        className="tooltip-icon codename-icon"
+        aria-label="Codename"
+        aria-describedby={id}
+        onKeyDown={(e) => e.key === "Escape" && e.currentTarget.blur()}
+      >
+        {"{#}"}
+      </button>
+      <span id={id} role="tooltip" className="tooltip-text">
+        <code>{codename}</code>
+      </span>
+    </span>
+  );
+};
+
 /**
  * Shows an unexpected rendering error instead of a blank page. Errors from API calls are handled where they
  * happen; this only catches bugs.

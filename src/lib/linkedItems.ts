@@ -29,6 +29,8 @@ export type LinkedItemsResult = {
   }[];
   /** Ids that were referenced but no longer exist in the source. */
   readonly deletedIds: readonly string[];
+  /** Ids of the assets the variants to copy reference; the copy fails on any that no longer exist. */
+  readonly assetIds: readonly string[];
 };
 
 // Rich text stores linked items as <object ... data-type="item" ... data-id="..."> and links
@@ -37,6 +39,8 @@ export type LinkedItemsResult = {
 const objectTagRegex = /<object\b[^>]*>/g;
 const dataIdRegex = /data-id="([^"]+)"/;
 const itemLinkRegex = /data-item-id="([^"]+)"/g;
+// Images and links to assets.
+const assetIdRegex = /data-asset-id="([^"]+)"/g;
 
 /** Finds the ids of items referenced by a variant's elements, including inside rich-text components. */
 export const findReferencedItemIds = (
@@ -72,6 +76,31 @@ export const findReferencedItemIds = (
   return ids;
 };
 
+/** Finds the ids of assets referenced by a variant's elements, including inside rich-text components. */
+export const findReferencedAssetIds = (
+  elements: readonly VariantElement[],
+  elementTypes: ReadonlyMap<string, string>,
+): Set<string> => {
+  const ids = new Set<string>();
+  for (const element of elements) {
+    const type = element.element.id ? elementTypes.get(element.element.id) : undefined;
+    if (type === "asset" && Array.isArray(element.value)) {
+      for (const ref of element.value as { id?: string }[]) {
+        if (ref.id) ids.add(ref.id);
+      }
+    }
+    if (type === "rich_text" && typeof element.value === "string") {
+      for (const match of element.value.matchAll(assetIdRegex)) {
+        if (match[1]) ids.add(match[1]);
+      }
+    }
+    for (const component of element.components ?? []) {
+      for (const id of findReferencedAssetIds(component.elements, elementTypes)) ids.add(id);
+    }
+  }
+  return ids;
+};
+
 /** Finds the ids of taxonomy terms selected in a variant's elements, including inside rich-text components. */
 export const findTaxonomyTermIds = (
   elements: readonly VariantElement[],
@@ -94,9 +123,10 @@ export const findTaxonomyTermIds = (
 
 /**
  * Starting from the picked items, follows linked items and rich-text references breadth first,
- * up to `maxDepth` levels, separately in each language: translations can link to different items.
- * With maxDepth 0 it returns just the picked items. Each level is loaded with bulk requests
- * (up to 100 items each).
+ * up to `maxDepth` levels (Infinity for all), separately in each language: translations can link to
+ * different items. With maxDepth 0 it returns just the picked items. Each level is loaded with bulk
+ * requests (up to 100 items each). Items referenced from the last level are not copied, but are still
+ * checked: the copy fails on a reference to an item that no longer exists, at any level.
  */
 export const expandWithLinkedItems = async (params: {
   readonly client: ManagementClient;
@@ -115,6 +145,7 @@ export const expandWithLinkedItems = async (params: {
     items: results.flatMap((r) => r.items),
     withoutVariant: results.flatMap((r) => r.withoutVariant),
     deletedIds: [...new Set(results.flatMap((r) => r.deletedIds))],
+    assetIds: [...new Set(results.flatMap((r) => r.assetIds))],
   };
 };
 
@@ -129,6 +160,9 @@ const expandInLanguage = async (params: {
   const planned: PlannedItem[] = [];
   const withoutVariant: { item: Item; languageCodename: string; picked: boolean }[] = [];
   const deletedIds: string[] = [];
+  const assetIds = new Set<string>();
+  // Referenced from the last level: not copied, only checked for whether they still exist.
+  const beyondDepth: string[] = [];
   const seen = new Set(params.pickedIds);
   const { languageCodename } = params;
   let frontier: { readonly id: string; readonly linkedFrom?: string }[] = params.pickedIds.map((id) => ({ id }));
@@ -169,17 +203,22 @@ const expandInLanguage = async (params: {
         state: entry.state,
         termIds: [...findTaxonomyTermIds(entry.elements, params.elementTypes)],
       });
-      if (depth < params.maxDepth) {
-        for (const refId of findReferencedItemIds(entry.elements, params.elementTypes)) {
-          if (!seen.has(refId)) {
-            seen.add(refId);
-            nextFrontier.push({ id: refId, linkedFrom: id });
-          }
-        }
+      for (const assetId of findReferencedAssetIds(entry.elements, params.elementTypes)) assetIds.add(assetId);
+      for (const refId of findReferencedItemIds(entry.elements, params.elementTypes)) {
+        if (seen.has(refId)) continue;
+        seen.add(refId);
+        if (depth < params.maxDepth) nextFrontier.push({ id: refId, linkedFrom: id });
+        else beyondDepth.push(refId);
       }
     }
     frontier = nextFrontier;
   }
 
-  return { items: planned, withoutVariant, deletedIds };
+  if (beyondDepth.length > 0) {
+    params.onProgress?.(`Checking the items linked beyond the chosen depth in ${languageCodename}`);
+    const found = await getItemsWithVariants(params.client, beyondDepth, languageCodename);
+    deletedIds.push(...beyondDepth.filter((id) => !found.has(id)));
+  }
+
+  return { items: planned, withoutVariant, deletedIds, assetIds: [...assetIds] };
 };

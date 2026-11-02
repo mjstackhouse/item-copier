@@ -157,10 +157,13 @@ export const App = () => {
       {/* Background rather than a warning, so it stays out of the way; the preview's confirmation carries the
           warning that copies can't be undone. */}
       <footer className="app-footer">
-        Not an official Kontent.ai tool ·{" "}
-        <a href="https://github.com/mjstackhouse/item-copier#using-the-tool" target="_blank" rel="noreferrer">
-          How to use it
-        </a>
+        {/* One inline run: as separate flex items, the space before the link would be dropped. */}
+        <span>
+          Not an official Kontent.ai tool ·{" "}
+          <a href="https://github.com/mjstackhouse/item-copier#using-the-tool" target="_blank" rel="noreferrer">
+            How to use it
+          </a>
+        </span>
       </footer>
     </main>
   );
