@@ -4,10 +4,12 @@ import { ConnectStep } from "./components/ConnectStep";
 import { CopyStep } from "./components/CopyStep";
 import { PreviewStep } from "./components/PreviewStep";
 import { Message } from "./components/ui";
-import { emptySearch, type SearchState, type Selection, SelectStep } from "./components/SelectStep";
-import { type Connection, errorMessage, loadSourceData, type SourceData } from "./lib/kontent";
+import { emptySearch, type SearchState, SelectStep } from "./components/SelectStep";
+import { type Connection, loadSourceData, type SourceData } from "./lib/kontent";
 import type { Plan } from "./lib/plan";
 import type { PublishMode } from "./lib/publishing";
+import { emptySelection, type Selection } from "./lib/selection";
+import { errorMessage } from "./lib/util";
 
 type Step = "connect" | "select" | "preview" | "copy";
 
@@ -17,15 +19,6 @@ const steps: readonly { readonly id: Step; readonly label: string }[] = [
   { id: "preview", label: "Preview" },
   { id: "copy", label: "Copy" },
 ];
-
-const emptySelection: Selection = {
-  languageCodename: "",
-  copyAllLanguages: true,
-  chosenLanguages: [],
-  pickedItems: [],
-  linkedItemsDepth: 1,
-  skipMissingReferences: false,
-};
 
 export const App = () => {
   const [step, setStep] = useState<Step>("connect");
@@ -52,7 +45,6 @@ export const App = () => {
         if (cancelled) return;
         setSourceData(data);
         const defaultLanguage = data.languages.find((l) => l.isDefault) ?? data.languages[0];
-        // Copies every language by default (see emptySelection): copying an item usually means all of its translations.
         setSelection({ ...emptySelection, languageCodename: defaultLanguage?.codename ?? "" });
       })
       .catch((e: unknown) => {

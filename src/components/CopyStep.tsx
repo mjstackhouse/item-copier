@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 
 import { type CopyResult, copyItems, type LogEntry } from "../lib/copy";
-import { type Connection, errorMessage } from "../lib/kontent";
+import type { Connection } from "../lib/kontent";
 import type { Plan } from "../lib/plan";
 import type { PublishMode, WorkflowSteps } from "../lib/publishing";
-import type { Selection } from "./SelectStep";
+import type { Selection } from "../lib/selection";
+import { errorMessage } from "../lib/util";
 import { Message } from "./ui";
 
 type Props = {
@@ -49,12 +50,21 @@ export const CopyStep = ({ source, target, selection, plan, publishMode, sourceW
       .catch((e: unknown) => setError(errorMessage(e)));
   }, [source, target, selection, plan, publishMode, sourceWorkflowSteps]);
 
-  // Braces matter: an effect's return value is treated as its cleanup function.
+  // Runs on purpose whenever a log line is added, to keep the latest one in view.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: log.length is the trigger, not a value the effect reads
   useEffect(() => {
     logEnd.current?.scrollIntoView({ block: "nearest" });
   }, [log.length]);
 
   const running = !result && !error;
+
+  // Closing or reloading the tab stops the copy partway, so the browser asks first while it runs.
+  useEffect(() => {
+    if (!running) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [running]);
   const summary = result?.summary;
   const cancelled = result?.state === "cancelled";
 
@@ -66,7 +76,15 @@ export const CopyStep = ({ source, target, selection, plan, publishMode, sourceW
   return (
     <section>
       <h2>
-        {running ? (cancelling ? "Cancelling…" : "Copying…") : error ? "Copy failed" : cancelled ? "Copy cancelled" : "Copy finished"}
+        {running
+          ? cancelling
+            ? "Cancelling…"
+            : "Copying…"
+          : error
+            ? "Copy failed"
+            : cancelled
+              ? "Copy cancelled"
+              : "Copy finished"}
       </h2>
       {running && (
         <p className="loading-general" role="status">
@@ -80,58 +98,70 @@ export const CopyStep = ({ source, target, selection, plan, publishMode, sourceW
         </Message>
       )}
 
-      {cancelled && !summary && <Message kind="ok">The copy stopped before anything was written to the target.</Message>}
-      {cancelled && summary && (
-        <Message kind="warning">
-          The copy stopped partway. {summary.variantsCancelled} language variant(s) were not copied. You can copy the
-          same items again later: items that were already copied are updated, not duplicated.
-        </Message>
-      )}
+      {/* Announces the outcome once, rather than every log line. */}
+      <div role="status">
+        {cancelled && !summary && (
+          <Message kind="ok">The copy stopped before anything was written to the target.</Message>
+        )}
+        {cancelled && summary && (
+          <Message kind="warning">
+            The copy stopped partway. {summary.variantsCancelled} language variant(s) were not copied. You can copy the
+            same items again later: items that were already copied are updated, not duplicated.
+          </Message>
+        )}
 
-      {summary && (
-        <Message
-          kind={summary.errors.length || summary.itemsNotRead.length || summary.assetsMovedToRoot.length ? "warning" : "ok"}
-        >
-          <p>
-            Items: {summary.itemsOk} copied{summary.itemsFailed ? `, ${summary.itemsFailed} failed` : ""}. Language
-            variants: {summary.variantsOk} copied
-            {summary.variantsFailed ? `, ${summary.variantsFailed} failed` : ""}. Assets: {summary.assetsUploaded}{" "}
-            uploaded, {summary.assetsUpdated} updated.
-          </p>
-          {summary.itemsNotRead.length > 0 && (
+        {summary && (
+          <Message
+            kind={
+              summary.errors.length || summary.itemsNotRead.length || summary.assetsMovedToRoot.length
+                ? "warning"
+                : "ok"
+            }
+          >
             <p>
-              {summary.itemsNotRead.length} language variant(s) could not be read from the source and were not copied:{" "}
-              {summary.itemsNotRead.join(", ")}. Check them in the source, for example for a workflow step, collection
-              or element value the copy can't handle.
+              Items: {summary.itemsOk} copied{summary.itemsFailed ? `, ${summary.itemsFailed} failed` : ""}. Language
+              variants: {summary.variantsOk} copied
+              {summary.variantsFailed ? `, ${summary.variantsFailed} failed` : ""}. Assets: {summary.assetsUploaded}{" "}
+              uploaded, {summary.assetsUpdated} updated.
             </p>
-          )}
-          {summary.assetsMovedToRoot.length > 0 && (
-            <p>
-              {summary.assetsMovedToRoot.length} asset(s) were placed in the root folder, because their folder doesn't
-              exist in the target: {summary.assetsMovedToRoot.join(", ")}. Move them, or create the folders and copy
-              again.
-            </p>
-          )}
-          {summary.errors.length > 0 && (
-            <ul>
-              {summary.errors.map((e) => (
-                <li key={e}>{e}</li>
-              ))}
-            </ul>
-          )}
-        </Message>
-      )}
-      {error && (
-        <Message kind="error" multiline>
-          {error}
-        </Message>
-      )}
+            {summary.itemsNotRead.length > 0 && (
+              <p>
+                {summary.itemsNotRead.length} language variant(s) could not be read from the source and were not copied:{" "}
+                {summary.itemsNotRead.join(", ")}. Check them in the source, for example for a workflow step, collection
+                or element value the copy can't handle.
+              </p>
+            )}
+            {summary.assetsMovedToRoot.length > 0 && (
+              <p>
+                {summary.assetsMovedToRoot.length} asset(s) were placed in the root folder, because their folder doesn't
+                exist in the target: {summary.assetsMovedToRoot.join(", ")}. Move them, or create the folders and copy
+                again.
+              </p>
+            )}
+            {summary.errors.length > 0 && (
+              <ul>
+                {summary.errors.map((e) => (
+                  <li key={e}>{e}</li>
+                ))}
+              </ul>
+            )}
+          </Message>
+        )}
+        {error && (
+          <Message kind="error" multiline>
+            {error}
+          </Message>
+        )}
+      </div>
 
       <section className="log-panel" aria-label="Progress log">
         <p className="section-heading">Progress log</p>
-        <ol className="log" aria-live="polite">
-          {log.map((entry, index) => (
-            <li key={index} className={entry.type === "error" ? "log-error" : entry.type === "warning" ? "log-warning" : ""}>
+        <ol className="log">
+          {log.map((entry) => (
+            <li
+              key={entry.id}
+              className={entry.type === "error" ? "log-error" : entry.type === "warning" ? "log-warning" : ""}
+            >
               <span className="muted">{entry.time.toLocaleTimeString()}</span> {entry.type && <code>{entry.type}</code>}{" "}
               {entry.message}
             </li>

@@ -3,36 +3,18 @@ import { useId, useMemo, useState } from "react";
 import {
   activeFilterCount,
   type Connection,
-  errorMessage,
-  type Item,
-  type Language,
-  noFilters,
   type SearchFilters as Filters,
+  type Item,
+  noFilters,
   type SearchResult,
-  searchItems,
   type SourceData,
+  searchItems,
 } from "../lib/kontent";
+import { languagesToCopy, type Selection } from "../lib/selection";
+import { errorMessage } from "../lib/util";
 import { LanguagePicker } from "./LanguagePicker";
 import { SearchFilters } from "./SearchFilters";
 import { Message, Tooltip } from "./ui";
-
-export type Selection = {
-  /** The language to search in. */
-  readonly languageCodename: string;
-  /** True to copy every language; otherwise only `chosenLanguages`. */
-  readonly copyAllLanguages: boolean;
-  /** The languages picked under "Choose languages", in the source's language order. */
-  readonly chosenLanguages: readonly string[];
-  readonly pickedItems: readonly Item[];
-  readonly linkedItemsDepth: number;
-  readonly skipMissingReferences: boolean;
-};
-
-/** The codenames of the languages to copy, in the source's language order. */
-export const languagesToCopy = (selection: Selection, languages: readonly Language[]): string[] =>
-  languages
-    .map((l) => l.codename)
-    .filter((c) => selection.copyAllLanguages || selection.chosenLanguages.includes(c));
 
 /** The last search and its loaded results; kept by the parent so it survives going back from the preview. */
 export type SearchState = {
@@ -237,9 +219,7 @@ export const SelectStep = ({
             </ul>
           </div>
         )}
-
       </div>
-
 
       <details
         className="card settings-card"

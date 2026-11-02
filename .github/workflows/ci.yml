@@ -16,5 +16,7 @@ jobs:
           cache: npm
       # Also applies the toolkit patches; a patch that no longer applies fails the install.
       - run: npm ci
+      - run: npm run lint
       - run: npm run typecheck
+      - run: npm test
       - run: npm run build

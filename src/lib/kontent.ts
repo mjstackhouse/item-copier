@@ -2,6 +2,7 @@ import { type ContentTypeElements, ManagementClient } from "@kontent-ai/manageme
 
 import { createPacedHttpService } from "./pacedHttp";
 import { loadWorkflowSteps, type VariantState, type WorkflowSteps } from "./publishing";
+import { isNotFound } from "./util";
 
 export type Connection = {
   readonly environmentId: string;
@@ -68,22 +69,28 @@ export const flattenTypeElements = (
     return [{ codename: e.codename, name: ("name" in e && e.name) || e.codename, type: e.type }];
   });
 
-export const flattenTaxonomyTerms = (
-  groups: readonly { id: string; codename: string; name: string; terms: readonly unknown[] }[],
-): Map<string, TaxonomyTermInfo> => {
-  const terms = new Map<string, TaxonomyTermInfo>();
-  type Term = { id: string; codename: string; name: string; terms: readonly Term[] };
-  for (const group of groups) {
-    const add = (list: readonly Term[]) => {
-      for (const term of list) {
-        terms.set(term.id, { codename: term.codename, name: term.name, groupCodename: group.codename, groupName: group.name });
-        add(term.terms);
-      }
-    };
-    add(group.terms as readonly Term[]);
-  }
-  return terms;
+type TaxonomyTerm = {
+  readonly id: string;
+  readonly codename: string;
+  readonly name: string;
+  readonly terms: readonly TaxonomyTerm[];
 };
+
+/** Every term of a taxonomy group in tree order (a parent before its children), with its depth (0 for top-level terms). */
+const walkTerms = (terms: readonly TaxonomyTerm[], depth = 0): { term: TaxonomyTerm; depth: number }[] =>
+  terms.flatMap((term) => [{ term, depth }, ...walkTerms(term.terms, depth + 1)]);
+
+export const flattenTaxonomyTerms = (
+  groups: readonly { codename: string; name: string; terms: readonly TaxonomyTerm[] }[],
+): Map<string, TaxonomyTermInfo> =>
+  new Map(
+    groups.flatMap((group) =>
+      walkTerms(group.terms).map(({ term }) => [
+        term.id,
+        { codename: term.codename, name: term.name, groupCodename: group.codename, groupName: group.name },
+      ]),
+    ),
+  );
 
 export type SourceData = {
   readonly languages: readonly Language[];
@@ -142,9 +149,13 @@ export const loadSourceData = async (client: ManagementClient): Promise<SourceDa
     client.listTaxonomies().toAllPromise(),
   ]);
 
-  const taxonomyElementsOf = (elements: readonly ContentTypeElements.ContentTypeElementModel[]): TaxonomyElementInfo[] =>
+  const taxonomyElementsOf = (
+    elements: readonly ContentTypeElements.ContentTypeElementModel[],
+  ): TaxonomyElementInfo[] =>
     elements.flatMap((e) =>
-      e.type === "taxonomy" && e.taxonomy_group.id ? [{ name: e.name ?? e.codename ?? "", taxonomyGroupId: e.taxonomy_group.id }] : [],
+      e.type === "taxonomy" && e.taxonomy_group.id
+        ? [{ name: e.name ?? e.codename ?? "", taxonomyGroupId: e.taxonomy_group.id }]
+        : [],
     );
   const snippetsById = new Map(snippets.data.items.map((s) => [s.id, s]));
 
@@ -179,18 +190,11 @@ export const loadSourceData = async (client: ManagementClient): Promise<SourceDa
     taxonomyTerms: flattenTaxonomyTerms(taxonomies.data.items),
     elementTypes,
     collections: collections.data.collections.map((c) => ({ id: c.id, name: c.name })),
-    taxonomyGroups: taxonomies.data.items.map((group) => {
-      type Term = { id: string; name: string; terms: readonly Term[] };
-      const terms: { id: string; name: string; depth: number }[] = [];
-      const add = (list: readonly Term[], depth: number) => {
-        for (const term of list) {
-          terms.push({ id: term.id, name: term.name, depth });
-          add(term.terms, depth + 1);
-        }
-      };
-      add(group.terms as readonly Term[], 0);
-      return { id: group.id, name: group.name, terms };
-    }),
+    taxonomyGroups: taxonomies.data.items.map((group) => ({
+      id: group.id,
+      name: group.name,
+      terms: walkTerms(group.terms).map(({ term, depth }) => ({ id: term.id, name: term.name, depth })),
+    })),
   };
 };
 
@@ -254,7 +258,8 @@ const groupByParent = (values: readonly string[]): Map<string, string[]> => {
   return groups;
 };
 
-const filterContract = (filters: SearchFilters) => ({
+/** The `filters` of a filter request for the chosen search filters; filters with nothing chosen are left out. */
+export const filterContract = (filters: SearchFilters) => ({
   ...(filters.contentTypeIds.length ? { content_types: filters.contentTypeIds.map((id) => ({ id })) } : {}),
   ...(filters.collectionIds.length ? { collections: filters.collectionIds.map((id) => ({ id })) } : {}),
   ...(filters.workflowSteps.length
@@ -312,7 +317,22 @@ export const searchItems = async (params: {
   };
 };
 
-const bulkGetLimit = 100;
+/** The most variants a bulk get request accepts. */
+export const bulkGetLimit = 100;
+
+/** The workflow step and schedule of a variant as the Management API returns it. */
+export const variantStateOf = (variant: {
+  readonly workflow: {
+    readonly workflow_identifier: { readonly id?: string };
+    readonly step_identifier: { readonly id?: string };
+  };
+  readonly schedule?: { readonly publish_time?: string | null; readonly unpublish_time?: string | null };
+}): VariantState => ({
+  workflowId: variant.workflow.workflow_identifier.id ?? "",
+  stepId: variant.workflow.step_identifier.id ?? "",
+  publishTime: variant.schedule?.publish_time ?? null,
+  unpublishTime: variant.schedule?.unpublish_time ?? null,
+});
 
 /**
  * Loads items and their variants in one language, up to 100 per request.
@@ -338,12 +358,7 @@ export const getItemsWithVariants = async (
       result.set(item.id, {
         item: toItem(item),
         elements: variant?.elements,
-        state: variant && {
-          workflowId: variant.workflow.workflow_identifier.id ?? "",
-          stepId: variant.workflow.step_identifier.id ?? "",
-          publishTime: variant.schedule?.publish_time ?? null,
-          unpublishTime: variant.schedule?.unpublish_time ?? null,
-        },
+        state: variant && variantStateOf(variant),
       });
     }
   }
@@ -360,38 +375,4 @@ export const getItemsWithVariants = async (
   }
 
   return result;
-};
-
-/** True when a Management API call failed because the thing does not exist. */
-export const isNotFound = (error: unknown): boolean => {
-  const status = (error as { originalError?: { response?: { status?: number } } } | undefined)?.originalError
-    ?.response?.status;
-  return status === 404;
-};
-
-/** Runs `fn` over `inputs` with at most `limit` calls in flight, keeping the input order. */
-export const mapWithLimit = async <TIn, TOut>(
-  inputs: readonly TIn[],
-  limit: number,
-  fn: (input: TIn) => Promise<TOut>,
-): Promise<TOut[]> => {
-  const results: TOut[] = new Array<TOut>(inputs.length);
-  let next = 0;
-
-  const worker = async () => {
-    while (next < inputs.length) {
-      const index = next++;
-      results[index] = await fn(inputs[index] as TIn);
-    }
-  };
-
-  await Promise.all(Array.from({ length: Math.min(limit, inputs.length) }, worker));
-  return results;
-};
-
-export const errorMessage = (error: unknown): string => {
-  if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
-    return error.message;
-  }
-  return String(error);
 };

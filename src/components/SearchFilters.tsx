@@ -43,9 +43,7 @@ export const SearchFilters = ({ sourceData, filters, onChange }: Props) => {
   }));
   // With one workflow, its name adds nothing.
   const stepOptions: Options =
-    stepGroups.length === 1
-      ? (stepGroups[0]?.options ?? []).map((o) => ({ ...o, chipLabel: undefined }))
-      : stepGroups;
+    stepGroups.length === 1 ? (stepGroups[0]?.options ?? []).map((o) => ({ ...o, chipLabel: undefined })) : stepGroups;
 
   // Grouped by taxonomy group, with nested terms indented, like in the app.
   const termOptions: Options = sourceData.taxonomyGroups.map((group) => ({
@@ -82,7 +80,9 @@ export const SearchFilters = ({ sourceData, filters, onChange }: Props) => {
           // In the order they were chosen.
           value={chosen.flatMap((v) => all.filter((o) => o.value === v))}
           onChange={(selected) => onChange({ ...filters, [params.key]: selected.map((o) => o.value) })}
-          formatOptionLabel={(option, { context }) => (context === "value" ? (option.chipLabel ?? option.label) : option.label)}
+          formatOptionLabel={(option, { context }) =>
+            context === "value" ? (option.chipLabel ?? option.label) : option.label
+          }
           // Search by the group too, so "Product category" finds all of its terms.
           filterOption={(option, input) =>
             (option.data.chipLabel ?? option.label).toLowerCase().includes(input.toLowerCase())

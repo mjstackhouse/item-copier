@@ -22,7 +22,11 @@ export type LinkedItemsResult = {
   /** Variants to copy: every item found, in every chosen language it has a variant in. */
   readonly items: readonly PlannedItem[];
   /** Items (picked or linked) without a variant in a chosen language; those variants are skipped. */
-  readonly withoutVariant: readonly { readonly item: Item; readonly languageCodename: string; readonly picked: boolean }[];
+  readonly withoutVariant: readonly {
+    readonly item: Item;
+    readonly languageCodename: string;
+    readonly picked: boolean;
+  }[];
   /** Ids that were referenced but no longer exist in the source. */
   readonly deletedIds: readonly string[];
 };

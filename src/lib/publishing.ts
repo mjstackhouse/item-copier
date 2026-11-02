@@ -1,6 +1,6 @@
 import type { ManagementClient } from "@kontent-ai/management-sdk";
 
-import { isNotFound } from "./kontent";
+import { isNotFound } from "./util";
 
 export type StepKind = "draft" | "published" | "archived" | "scheduled";
 
@@ -29,6 +29,14 @@ export type WorkflowSteps = ReadonlyMap<string, WorkflowStepInfo>;
 
 export const findStep = (steps: WorkflowSteps, state: { readonly workflowId: string; readonly stepId: string }) =>
   steps.get(`${state.workflowId}/${state.stepId}`);
+
+/** A workflow's steps in workflow order: its own steps first (so the first draft step is its first step), then Published, Archived and Scheduled. */
+export const stepsInWorkflow = (steps: WorkflowSteps, workflowCodename: string): WorkflowStepInfo[] =>
+  [...steps.values()].filter((s) => s.workflowCodename === workflowCodename);
+
+/** The kind of a step found by codenames, as the migration toolkit refers to steps; "draft" when it isn't found. */
+export const stepKindOf = (steps: WorkflowSteps, workflowCodename: string, stepCodename: string): StepKind =>
+  stepsInWorkflow(steps, workflowCodename).find((s) => s.codename === stepCodename)?.kind ?? "draft";
 
 /** The latest version of a variant: its workflow, workflow step and schedule. */
 export type VariantState = {
@@ -89,7 +97,11 @@ export const loadWorkflowSteps = async (client: ManagementClient): Promise<Workf
       });
     for (const step of workflow.steps) {
       const transitions = (step as unknown as { transitions_to?: { step?: { id?: string } }[] }).transitions_to ?? [];
-      add(step, "draft", transitions.flatMap((t) => (t.step?.id ? [t.step.id] : [])));
+      add(
+        step,
+        "draft",
+        transitions.flatMap((t) => (t.step?.id ? [t.step.id] : [])),
+      );
     }
     add(workflow.publishedStep, "published");
     add(workflow.archivedStep, "archived");
@@ -130,7 +142,10 @@ const hasPublishedVersionAsync = async (
   item: { readonly id: string } | { readonly codename: string },
   languageCodename: string,
 ): Promise<boolean> => {
-  const query = "id" in item ? client.viewLanguageVariant().byItemId(item.id) : client.viewLanguageVariant().byItemCodename(item.codename);
+  const query =
+    "id" in item
+      ? client.viewLanguageVariant().byItemId(item.id)
+      : client.viewLanguageVariant().byItemCodename(item.codename);
   try {
     await query.byLanguageCodename(languageCodename).published().toPromise();
     return true;
@@ -152,11 +167,8 @@ export const targetStepFor = (
   step: { readonly codename: string; readonly kind: StepKind },
 ): WorkflowStepInfo | undefined => {
   // In workflow order, so the first draft step found is the workflow's first step.
-  const inWorkflow = [...targetSteps.values()].filter((s) => s.workflowCodename === workflowCodename);
-  return (
-    inWorkflow.find((s) => s.codename === step.codename) ??
-    inWorkflow.find((s) => s.kind === step.kind)
-  );
+  const inWorkflow = stepsInWorkflow(targetSteps, workflowCodename);
+  return inWorkflow.find((s) => s.codename === step.codename) ?? inWorkflow.find((s) => s.kind === step.kind);
 };
 
 // Kontent.ai's default workflow always has this id.
@@ -189,7 +201,7 @@ export const requiredWorkflow = (
  * step and then moves it straight to Archived, which the workflow's transitions must allow.
  */
 export const canArchiveFromFirstStep = (steps: WorkflowSteps, workflowCodename: string): boolean => {
-  const inWorkflow = [...steps.values()].filter((s) => s.workflowCodename === workflowCodename);
+  const inWorkflow = stepsInWorkflow(steps, workflowCodename);
   const first = inWorkflow.find((s) => s.kind === "draft");
   const archived = inWorkflow.find((s) => s.kind === "archived");
   return !!first && !!archived && first.transitionsTo.includes(archived.id);
@@ -240,7 +252,9 @@ const describeSource = (source: PublishingState, latestStepName: string): string
 
   switch (source.stepKind) {
     case "published":
-      return source.unpublishTime ? `Published, scheduled to unpublish ${formatTime(source.unpublishTime)}` : "Published";
+      return source.unpublishTime
+        ? `Published, scheduled to unpublish ${formatTime(source.unpublishTime)}`
+        : "Published";
     case "archived":
       return "Archived";
     default:

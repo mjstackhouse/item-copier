@@ -1,6 +1,7 @@
 import { useId, useState } from "react";
 
-import { type Connection, connect, errorMessage } from "../lib/kontent";
+import { type Connection, connect } from "../lib/kontent";
+import { errorMessage } from "../lib/util";
 import { Message, Tooltip } from "./ui";
 
 type Props = {
@@ -118,7 +119,8 @@ const EnvironmentForm = ({ label, permissions, connection, onChange }: FormProps
       </button>
       {connection && (
         <Message kind="ok">
-          Connected to <strong>{connection.projectName}</strong>, environment <strong>{connection.environmentName}</strong>
+          Connected to <strong>{connection.projectName}</strong>, environment{" "}
+          <strong>{connection.environmentName}</strong>
         </Message>
       )}
       {status.error && <Message kind="error">{status.error}</Message>}

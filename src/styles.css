@@ -232,7 +232,8 @@ h2 {
   width: 20px;
   height: 20px;
   transform: translateY(-50%);
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke-width='1.5' stroke='%23151515'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='m19.5 8.25-7.5 7.5-7.5-7.5' /%3E%3C/svg%3E")
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke-width='1.5' stroke='%23151515'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='m19.5 8.25-7.5 7.5-7.5-7.5' /%3E%3C/svg%3E")
     center / contain no-repeat;
   transition: transform 0.2s ease;
 }
@@ -439,16 +440,61 @@ input[type="radio"] {
 }
 
 /* ⓘ tooltip next to a label */
+.tooltip {
+  display: inline-block;
+}
+
+/* The explanation is placed under the whole label row, so it stays inside the card in either column. */
+.field-label,
+.copy-languages legend {
+  position: relative;
+}
+
 .tooltip-icon {
   margin-left: 0.35rem;
   padding: 1px 5px;
+  border: none;
   border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
   font-weight: 400;
+  cursor: help;
 }
 
-.tooltip-icon:hover {
+.tooltip-icon:hover,
+.tooltip-icon:focus-visible {
   background-color: rgba(21, 21, 21, 0.1);
-  cursor: help;
+}
+
+.tooltip-icon:focus-visible {
+  outline: 2px solid var(--purple);
+  outline-offset: 1px;
+}
+
+.tooltip-text {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  display: none;
+  width: max-content;
+  max-width: min(340px, 100%);
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--lighter-black);
+  color: white;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  text-align: left;
+  white-space: normal;
+}
+
+.tooltip:hover .tooltip-text,
+.tooltip-icon:focus-visible + .tooltip-text,
+.tooltip-icon:focus + .tooltip-text {
+  display: block;
 }
 
 /* Spinners: white inside a button, orange for page-level loading */

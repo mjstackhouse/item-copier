@@ -22,11 +22,13 @@
 import { HttpService } from "@kontent-ai/core-sdk";
 
 import { copyItems } from "../src/lib/copy";
-import { type Connection, connect, errorMessage, loadSourceData, type SourceData } from "../src/lib/kontent";
-import { buildPlan, type Plan, type PlanRow, publishModeBlockers } from "../src/lib/plan";
-import { predict, type PublishMode } from "../src/lib/publishing";
+import { type Connection, connect, loadSourceData, type SourceData } from "../src/lib/kontent";
+import { buildPlan, type Plan, predictRow, publishModeBlockers } from "../src/lib/plan";
+import type { PublishMode } from "../src/lib/publishing";
+import { errorMessage } from "../src/lib/util";
 
-const usage = "Usage: npm run test:real -- <plan|copy> <item codename>... [--languages=a,b] [--depth=N] [--drafts] [--skip-deleted] [--cancel-after=N] [--verbose] [--yes]";
+const usage =
+  "Usage: npm run test:real -- <plan|copy> <item codename>... [--languages=a,b] [--depth=N] [--drafts] [--skip-deleted] [--cancel-after=N] [--verbose] [--yes]";
 
 type Options = {
   readonly command: "plan" | "copy";
@@ -44,10 +46,12 @@ const parseArgs = (args: readonly string[]): Options => {
   const [command, ...rest] = args;
   if (command !== "plan" && command !== "copy") throw new Error(usage);
   const flags = new Map(
-    rest.filter((a) => a.startsWith("--")).map((a) => {
-      const [name = "", value = "true"] = a.slice(2).split("=");
-      return [name, value] as const;
-    }),
+    rest
+      .filter((a) => a.startsWith("--"))
+      .map((a) => {
+        const [name = "", value = "true"] = a.slice(2).split("=");
+        return [name, value] as const;
+      }),
   );
   const codenames = rest.filter((a) => !a.startsWith("--"));
   if (!codenames.length) throw new Error(usage);
@@ -80,7 +84,11 @@ const requireEnv = (name: string): string => {
  */
 const requestStarts = new Map<string, number[]>();
 for (const method of ["getAsync", "postAsync", "putAsync", "patchAsync", "deleteAsync"] as const) {
-  const original = HttpService.prototype[method] as (this: HttpService, call: { url: string }, ...rest: unknown[]) => unknown;
+  const original = HttpService.prototype[method] as (
+    this: HttpService,
+    call: { url: string },
+    ...rest: unknown[]
+  ) => unknown;
   (HttpService.prototype as unknown as Record<string, unknown>)[method] = function (
     this: HttpService,
     call: { url: string },
@@ -201,28 +209,18 @@ const runPlan = async (params: {
   });
 };
 
-const predictionFor = (row: PlanRow, mode: PublishMode) =>
-  row.sourcePublishing
-    ? predict({
-        mode,
-        source: row.sourcePublishing,
-        target: row.targetPublishing,
-        latestStepName: row.latestStepName,
-        firstStepName: row.firstStepName,
-      })
-    : { outcome: "", effects: [] };
-
 const printPlan = (plan: Plan, mode: PublishMode, blockers: readonly string[]) => {
-  console.log(`\nPreview (${mode === "drafts" ? "Copy as drafts" : "Match the source"}): ${plan.rows.length} variant(s)`);
+  console.log(
+    `\nPreview (${mode === "drafts" ? "Copy as drafts" : "Match the source"}): ${plan.rows.length} variant(s)`,
+  );
   for (const row of plan.rows) {
-    const { outcome, effects } = predictionFor(row, mode);
+    const { outcome, effects } = predictRow(row, mode);
     const why = row.depth === 0 ? "selected" : `linked, level ${row.depth}`;
     console.log(
       `  ${row.item.codename} (${row.languageCodename}) [${why}] ${row.targetStatus} -> ${outcome}${effects.length ? ` [${effects.join(", ")}]` : ""}`,
     );
   }
   for (const b of blockers) console.log(`  BLOCKER: ${b}`);
-  for (const w of plan.warnings) console.log(`  WARNING: ${w}`);
   for (const n of plan.notes) console.log(`  NOTE: ${n}`);
   if (plan.deletedReferenceCount) console.log(`  Deleted references: ${plan.deletedReferenceCount}`);
   if (plan.skippedVariants.length) {
@@ -267,7 +265,12 @@ const runCopy = async (params: {
       }
       if (entry.type === "info" && /^Importing '\d+' language variants/.test(entry.message)) importingVariants = true;
       // Progress lines for imported variants look like "languageVariant 50% Some item".
-      if (importingVariants && entry.type === "languageVariant" && /\d+%/.test(entry.message) && !/^0%/.test(entry.message)) {
+      if (
+        importingVariants &&
+        entry.type === "languageVariant" &&
+        /\d+%/.test(entry.message) &&
+        !/^0%/.test(entry.message)
+      ) {
         variantsDone++;
         if (options.cancelAfter !== undefined && variantsDone >= options.cancelAfter && !abort.signal.aborted) {
           console.log(`  Cancelling after ${variantsDone} variant(s)`);
@@ -307,18 +310,19 @@ const verify = (before: Plan, after: Plan, mode: PublishMode) => {
     const problems: string[] = [];
 
     if (!now) problems.push("no variant in the target");
-    else if (source) {
+    else {
       const expectedPublished =
         mode === "drafts" ? (row.targetPublishing?.hasPublishedVersion ?? false) : source.hasPublishedVersion;
       if (now.hasPublishedVersion !== expectedPublished) {
-        problems.push(`published version ${now.hasPublishedVersion ? "exists" : "missing"}, expected ${expectedPublished ? "one" : "none"}`);
+        problems.push(
+          `published version ${now.hasPublishedVersion ? "exists" : "missing"}, expected ${expectedPublished ? "one" : "none"}`,
+        );
       }
       const expectedPublishTime = mode === "drafts" ? null : source.publishTime;
       if ((now.publishTime ?? null) !== (expectedPublishTime ?? null)) {
         problems.push(`scheduled publish ${now.publishTime ?? "none"}, expected ${expectedPublishTime ?? "none"}`);
       }
-      const expectedStep =
-        mode === "drafts" && source.stepKind !== "draft" ? row.firstStepName : row.latestStepName;
+      const expectedStep = mode === "drafts" && source.stepKind !== "draft" ? row.firstStepName : row.latestStepName;
       // A latest version that is published or scheduled is checked through the published version and schedule above.
       if (now.stepKind === "draft" && expectedStep && now.stepName !== expectedStep) {
         problems.push(`latest version in the "${now.stepName}" step, expected "${expectedStep}"`);
@@ -326,7 +330,9 @@ const verify = (before: Plan, after: Plan, mode: PublishMode) => {
     }
 
     if (problems.length) failures++;
-    console.log(`  ${problems.length ? "MISMATCH" : "ok"}  ${label}${problems.length ? `: ${problems.join("; ")}` : ""}`);
+    console.log(
+      `  ${problems.length ? "MISMATCH" : "ok"}  ${label}${problems.length ? `: ${problems.join("; ")}` : ""}`,
+    );
   }
 
   console.log(failures ? `\n${failures} variant(s) don't match the preview.` : "\nEvery variant matches the preview.");

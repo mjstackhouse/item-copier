@@ -23,7 +23,8 @@ type Registry = Map<string, () => Promise<void>>;
 
 export const rateLimiterFor = (environmentId: string): (() => Promise<void>) => {
   const scope = globalThis as unknown as Record<symbol, Registry | undefined>;
-  const registry = (scope[registryKey] ??= new Map());
+  const registry = scope[registryKey] ?? new Map();
+  scope[registryKey] = registry;
   let limiter = registry.get(environmentId);
   if (!limiter) {
     limiter = createRateLimiter();
@@ -33,7 +34,9 @@ export const rateLimiterFor = (environmentId: string): (() => Promise<void>) => 
 };
 
 /** Waits until a request may start without going over either limit. Requests get their turn in order. */
-export const createRateLimiter = (limits: { readonly perSecond: number; readonly perMinute: number } = requestLimits) => {
+export const createRateLimiter = (
+  limits: { readonly perSecond: number; readonly perMinute: number } = requestLimits,
+) => {
   const started: number[] = [];
   let queue: Promise<void> = Promise.resolve();
 

@@ -1,9 +1,27 @@
-import { exportAsync, importAsync, type Logger, type LogMessage, type MigrationData } from "@kontent-ai/migration-toolkit";
+import {
+  exportAsync,
+  importAsync,
+  type Logger,
+  type LogMessage,
+  type MigrationData,
+} from "@kontent-ai/migration-toolkit";
 
-import { type Connection, errorMessage } from "./kontent";
-import { firstSteps, loadWorkflowSteps, type PublishMode, targetStepFor, type WorkflowSteps } from "./publishing";
+import type { Connection } from "./kontent";
+import {
+  firstSteps,
+  loadWorkflowSteps,
+  type PublishMode,
+  stepKindOf,
+  targetStepFor,
+  type WorkflowSteps,
+} from "./publishing";
+import { errorMessage } from "./util";
 
-export type LogEntry = LogMessage & { readonly time: Date };
+export type LogEntry = LogMessage & {
+  /** Counts up from 0 within one copy, so each entry has a stable key. */
+  readonly id: number;
+  readonly time: Date;
+};
 
 export type CopySummary = {
   readonly itemsOk: number;
@@ -86,8 +104,9 @@ export const copyItems = async (params: {
   let atItemBoundary = true;
 
   // The toolkit colors parts of its messages with terminal color codes; strip them for the UI.
+  let nextLogId = 0;
   const push = (message: LogMessage) =>
-    params.onLog({ ...message, message: stripColors(message.message), time: new Date() });
+    params.onLog({ ...message, message: stripColors(message.message), id: nextLogId++, time: new Date() });
 
   const checkCancelled = (message: LogMessage & { readonly prefix?: string }) => {
     if (!params.signal.aborted) return;
@@ -140,10 +159,13 @@ export const copyItems = async (params: {
       .map((v) => key(v.itemCodename, v.languageCodename))
       .filter((k) => !read.has(k));
 
-    const published = params.publishMode === "drafts" ? toDrafts(migrationData, params.sourceWorkflowSteps) : migrationData;
+    const published =
+      params.publishMode === "drafts" ? toDrafts(migrationData, params.sourceWorkflowSteps) : migrationData;
     const targetWorkflows = new Map(
       params.variants.flatMap((v) =>
-        v.targetWorkflowCodename ? [[`${v.itemCodename}/${v.languageCodename}`, v.targetWorkflowCodename] as const] : [],
+        v.targetWorkflowCodename
+          ? [[`${v.itemCodename}/${v.languageCodename}`, v.targetWorkflowCodename] as const]
+          : [],
       ),
     );
     const fitted = fitStepsToTarget(
@@ -179,25 +201,23 @@ export const copyItems = async (params: {
  * first step without a schedule. `keepTargetPublished` is read by this app's patch to the toolkit
  * (see patches/), which otherwise unpublishes target items whose import data has no published version.
  */
-const toDrafts = (data: MigrationData, steps: WorkflowSteps): MigrationData => {
+export const toDrafts = (data: MigrationData, steps: WorkflowSteps): MigrationData => {
   const first = firstSteps(steps);
-  const stepKind = (workflowCodename: string, stepCodename: string) =>
-    [...steps.values()].find((s) => s.workflowCodename === workflowCodename && s.codename === stepCodename)?.kind ??
-    "draft";
 
   return {
     ...data,
     items: data.items.map((item) => {
       const workflow = item.system.workflow.codename;
       const firstStep = first.get(workflow)?.codename;
-      const drafts = item.versions.filter((v) => stepKind(workflow, v.workflow_step.codename) !== "published");
+      const drafts = item.versions.filter((v) => stepKindOf(steps, workflow, v.workflow_step.codename) !== "published");
       const versions = (drafts.length ? drafts : item.versions).map((v) => ({
         ...v,
         // Archived stays archived: archiving is a deliberate decision (the preview blocks the cases where
         // that isn't possible).
-        workflow_step: ["draft", "archived"].includes(stepKind(workflow, v.workflow_step.codename)) || !firstStep
-          ? v.workflow_step
-          : { codename: firstStep },
+        workflow_step:
+          ["draft", "archived"].includes(stepKindOf(steps, workflow, v.workflow_step.codename)) || !firstStep
+            ? v.workflow_step
+            : { codename: firstStep },
         schedule: undefined,
       }));
       return { ...item, versions, keepTargetPublished: true };
@@ -211,7 +231,7 @@ const toDrafts = (data: MigrationData, steps: WorkflowSteps): MigrationData => {
  * versions move to the target workflow's step of the same kind, or its first step (see `targetStepFor`);
  * the preview tells the user. A missing workflow is left alone: the preview blocks the copy for it.
  */
-const fitStepsToTarget = (
+export const fitStepsToTarget = (
   data: MigrationData,
   sourceSteps: WorkflowSteps,
   targetSteps: WorkflowSteps,
@@ -223,11 +243,11 @@ const fitStepsToTarget = (
     const sourceWorkflow = item.system.workflow.codename;
     const workflow = targetWorkflows.get(`${item.system.codename}/${item.system.language.codename}`) ?? sourceWorkflow;
     const versions = item.versions.map((v) => {
-      const kind =
-        [...sourceSteps.values()].find((s) => s.workflowCodename === sourceWorkflow && s.codename === v.workflow_step.codename)
-          ?.kind ?? "draft";
+      const kind = stepKindOf(sourceSteps, sourceWorkflow, v.workflow_step.codename);
       const step = targetStepFor(targetSteps, workflow, { codename: v.workflow_step.codename, kind });
-      return step && step.codename !== v.workflow_step.codename ? { ...v, workflow_step: { codename: step.codename } } : v;
+      return step && step.codename !== v.workflow_step.codename
+        ? { ...v, workflow_step: { codename: step.codename } }
+        : v;
     });
     return { ...item, system: { ...item.system, workflow: { codename: workflow } }, versions };
   }),
@@ -308,7 +328,8 @@ const describeError = (result: unknown): string => {
     error?: unknown;
     inputItem?: { system?: { codename?: string }; codename?: string; migrationAsset?: { codename?: string } };
   };
-  const name = r.inputItem?.system?.codename ?? r.inputItem?.codename ?? r.inputItem?.migrationAsset?.codename ?? "unknown";
+  const name =
+    r.inputItem?.system?.codename ?? r.inputItem?.codename ?? r.inputItem?.migrationAsset?.codename ?? "unknown";
   if (r.state === "404") return `${name}: not found`;
   const message =
     r.error && typeof r.error === "object" && "message" in r.error ? String(r.error.message) : String(r.error);

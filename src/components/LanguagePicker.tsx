@@ -31,7 +31,12 @@ export const LanguagePicker = ({ languages, copyAll, chosen, onChange }: Props) 
       </legend>
       <div className="copy-languages-modes">
         <label className="checkbox">
-          <input type="radio" name={`${id}-mode`} checked={copyAll} onChange={() => onChange({ copyAll: true, chosen })} />
+          <input
+            type="radio"
+            name={`${id}-mode`}
+            checked={copyAll}
+            onChange={() => onChange({ copyAll: true, chosen })}
+          />
           All languages ({languages.length})
         </label>
         <label className="checkbox">

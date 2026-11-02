@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 
-import { errorMessage, type Connection, type SourceData } from "../lib/kontent";
-import { buildPlan, type Plan, publishModeBlockers } from "../lib/plan";
-import { type LiveEffect, predict, type PublishMode } from "../lib/publishing";
+import type { Connection, SourceData } from "../lib/kontent";
+import { buildPlan, type Plan, predictRow, publishModeBlockers } from "../lib/plan";
+import type { LiveEffect, PublishMode } from "../lib/publishing";
+import { languagesToCopy, type Selection } from "../lib/selection";
+import { errorMessage } from "../lib/util";
 import { Message } from "./ui";
-import { languagesToCopy, type Selection } from "./SelectStep";
 
 type Props = {
   readonly source: Connection;
@@ -34,15 +35,17 @@ export const PreviewStep = ({
   const [error, setError] = useState<string>();
   const [confirmed, setConfirmed] = useState(false);
 
+  // Only what the plan depends on: the skip option, for example, is set on this step and must not rebuild it.
+  const { pickedItems, linkedItemsDepth, copyAllLanguages, chosenLanguages } = selection;
   useEffect(() => {
     let cancelled = false;
     buildPlan({
       source,
       target,
       sourceData,
-      pickedIds: selection.pickedItems.map((i) => i.id),
-      languageCodenames: languagesToCopy(selection, sourceData.languages),
-      linkedItemsDepth: selection.linkedItemsDepth,
+      pickedIds: pickedItems.map((i) => i.id),
+      languageCodenames: languagesToCopy({ copyAllLanguages, chosenLanguages }, sourceData.languages),
+      linkedItemsDepth,
       onProgress: (m) => !cancelled && setProgress(m),
     })
       .then((p) => !cancelled && setPlan(p))
@@ -50,16 +53,7 @@ export const PreviewStep = ({
     return () => {
       cancelled = true;
     };
-    // Only what the plan depends on: the skip option, for example, is set on this step and must not rebuild it.
-  }, [
-    source,
-    target,
-    sourceData,
-    selection.pickedItems,
-    selection.linkedItemsDepth,
-    selection.copyAllLanguages,
-    selection.chosenLanguages,
-  ]);
+  }, [source, target, sourceData, pickedItems, linkedItemsDepth, copyAllLanguages, chosenLanguages]);
 
   if (error) {
     return (
@@ -86,18 +80,7 @@ export const PreviewStep = ({
     );
   }
 
-  const rows = plan.rows.map((row) => ({
-    row,
-    prediction: row.sourcePublishing
-      ? predict({
-          mode: publishMode,
-          source: row.sourcePublishing,
-          target: row.targetPublishing,
-          latestStepName: row.latestStepName,
-          firstStepName: row.firstStepName,
-        })
-      : { outcome: "", effects: [] },
-  }));
+  const rows = plan.rows.map((row) => ({ row, prediction: predictRow(row, publishMode) }));
   const blockers = [...plan.blockers, ...publishModeBlockers(plan, publishMode, target.environmentName)];
   const overwrites = plan.rows.filter((r) => r.targetStatus === "overwrites existing").length;
   const countEffect = (effect: LiveEffect) => rows.filter((r) => r.prediction.effects.includes(effect)).length;
@@ -127,8 +110,7 @@ export const PreviewStep = ({
     onPublishModeChange(mode);
   };
   const copied = languagesToCopy(selection, sourceData.languages);
-  const languageSummary =
-    copied.length > 5 ? `${copied.length} languages` : copied.join(", ");
+  const languageSummary = copied.length > 5 ? `${copied.length} languages` : copied.join(", ");
   // Grouped by item: listing every variant would repeat long item names once per missing language.
   const skippedGroups = new Map<string, { name: string; languages: string[] }>();
   for (const v of plan.skippedVariants) {
@@ -147,8 +129,8 @@ export const PreviewStep = ({
       <h2>Preview</h2>
       <p>
         <strong>{itemCount}</strong> item(s) in <strong>{plan.rows.length}</strong> language variant(s) will be copied
-        from <strong>{source.environmentName}</strong> to <strong>{target.environmentName}</strong> (
-        {languageSummary}). Assets they use are copied too.
+        from <strong>{source.environmentName}</strong> to <strong>{target.environmentName}</strong> ({languageSummary}).
+        Assets they use are copied too.
       </p>
 
       {blockers.map((b) => (
@@ -159,11 +141,6 @@ export const PreviewStep = ({
       {plan.notes.map((n) => (
         <Message key={n} kind="info">
           {n}
-        </Message>
-      ))}
-      {plan.warnings.map((w) => (
-        <Message key={w} kind="warning">
-          {w}
         </Message>
       ))}
       {skippedByItem.length > 0 && (
@@ -187,8 +164,8 @@ export const PreviewStep = ({
       {plan.deletedReferenceCount > 0 && (
         <Message kind="warning">
           <p>
-            {plan.deletedReferenceCount} reference(s) point to items that no longer exist in the source. The copy fails on
-            them unless they are skipped.
+            {plan.deletedReferenceCount} reference(s) point to items that no longer exist in the source. The copy fails
+            on them unless they are skipped.
           </p>
           <label className="checkbox">
             <input
@@ -228,8 +205,8 @@ export const PreviewStep = ({
           <span>
             <strong>Copy as drafts</strong>
             <span className="muted">
-              Nothing is published or unpublished. Items that are live in the target stay live, with the copied
-              content as a new draft on top. Schedules are not copied.
+              Nothing is published or unpublished. Items that are live in the target stay live, with the copied content
+              as a new draft on top. Schedules are not copied.
             </span>
           </span>
         </label>
@@ -312,9 +289,8 @@ export const PreviewStep = ({
           )}
           {confirmParts.length > 0 && (
             <label className="checkbox">
-              <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />I
-              understand that in {target.environmentName}, {confirmParts.join(", ")}, and that this can&apos;t be
-              undone.
+              <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />I understand
+              that in {target.environmentName}, {confirmParts.join(", ")}, and that this can&apos;t be undone.
             </label>
           )}
         </div>

@@ -1,27 +1,31 @@
 import {
+  bulkGetLimit,
   type Connection,
   flattenTaxonomyTerms,
   flattenTypeElements,
-  isNotFound,
-  mapWithLimit,
   type SourceData,
   type TypeElementInfo,
+  variantStateOf,
 } from "./kontent";
 import { expandWithLinkedItems, type PlannedItem } from "./linkedItems";
 import {
   canArchiveFromFirstStep,
   findStep,
   firstSteps,
-  requiredWorkflow,
-  targetStepFor,
-  type WorkflowStepInfo,
   getPublishingState,
   loadWorkflowSteps,
+  type Prediction,
   type PublishingState,
   type PublishMode,
+  predict,
+  requiredWorkflow,
+  stepsInWorkflow,
+  targetStepFor,
   type VariantState,
+  type WorkflowStepInfo,
   type WorkflowSteps,
 } from "./publishing";
+import { isNotFound, mapWithLimit, unique } from "./util";
 
 export type TargetStatus = "new item" | "new language variant" | "overwrites existing";
 
@@ -31,7 +35,7 @@ export type PlanRow = PlannedItem & {
   /** Content type of the existing target item; undefined when the item is new to the target. */
   readonly targetTypeCodename?: string;
   /** Publishing state of the source variant; the preview predicts the outcome from it for the chosen mode. */
-  readonly sourcePublishing?: PublishingState;
+  readonly sourcePublishing: PublishingState;
   /** Publishing state of the existing target variant; undefined when the target has none. */
   readonly targetPublishing?: PublishingState;
   /** The workflow the variant goes to in the target: the source's, or the one the target's scopes require. */
@@ -46,8 +50,6 @@ export type Plan = {
   readonly rows: readonly PlanRow[];
   /** Problems that stop the copy from running. */
   readonly blockers: readonly string[];
-  /** Things the user should know but that do not stop the copy. */
-  readonly warnings: readonly string[];
   /** Things worth knowing that are not a problem, such as steps the copy moves to another step. */
   readonly notes: readonly string[];
   /**
@@ -56,7 +58,11 @@ export type Plan = {
    */
   readonly deletedReferenceCount: number;
   /** Variants skipped because the item has no variant in that language in the source. Not a problem, just information. */
-  readonly skippedVariants: readonly { readonly itemId: string; readonly itemName: string; readonly languageCodename: string }[];
+  readonly skippedVariants: readonly {
+    readonly itemId: string;
+    readonly itemName: string;
+    readonly languageCodename: string;
+  }[];
 };
 
 /**
@@ -76,7 +82,6 @@ export const buildPlan = async (params: {
 }): Promise<Plan> => {
   const { source, target, sourceData, languageCodenames } = params;
   const blockers: string[] = [];
-  const warnings: string[] = [];
 
   const linked = await expandWithLinkedItems({
     client: source.client,
@@ -195,16 +200,15 @@ export const buildPlan = async (params: {
     const { languageCodename } = planned;
     const typeCodename = sourceData.typesById.get(planned.item.typeId)?.codename ?? "";
     const sourceStep = findStep(sourceData.workflowSteps, planned.state);
+    const targetWorkflow = targetWorkflowOf(planned);
     const [sourceState, targetState] = await Promise.all([
-      planned.state
-        ? getPublishingState({
-            client: source.client,
-            steps: sourceData.workflowSteps,
-            item: { id: planned.id },
-            languageCodename,
-            latest: planned.state,
-          })
-        : undefined,
+      getPublishingState({
+        client: source.client,
+        steps: sourceData.workflowSteps,
+        item: { id: planned.id },
+        languageCodename,
+        latest: planned.state,
+      }),
       getTargetState(target, targetSteps, targetVariants, planned.item.codename, languageCodename),
     ]);
     return {
@@ -214,8 +218,8 @@ export const buildPlan = async (params: {
       targetStatus: targetState.status,
       sourcePublishing: sourceState,
       targetPublishing: targetState.publishing,
-      targetWorkflowCodename: targetWorkflowOf(planned),
-      ...landingSteps(sourceStep, sourceFirstSteps, targetSteps, targetWorkflowOf(planned)),
+      targetWorkflowCodename: targetWorkflow,
+      ...landingSteps(sourceStep, sourceFirstSteps, targetSteps, targetWorkflow),
     };
   });
 
@@ -245,7 +249,6 @@ export const buildPlan = async (params: {
   return {
     rows,
     blockers,
-    warnings,
     notes,
     deletedReferenceCount: deletedReferences.length,
     skippedVariants: skippedVariants.map((w) => ({
@@ -262,8 +265,6 @@ type TargetVariants = {
   /** "codename/language" -> the latest version's workflow and schedule, for variants that exist in the target. */
   readonly latest: ReadonlyMap<string, VariantState>;
 };
-
-const bulkGetLimit = 100;
 
 /**
  * Looks up the planned variants in the target with as few requests as possible: one per item to see whether
@@ -294,18 +295,16 @@ const loadTargetVariants = async (
     const response = await target.client
       .bulkGetItemsWithVariants()
       .withData({
-        variants: chunk.map((p) => ({ item: { codename: p.item.codename }, language: { codename: p.languageCodename } })),
+        variants: chunk.map((p) => ({
+          item: { codename: p.item.codename },
+          language: { codename: p.languageCodename },
+        })),
       })
       .toAllPromise();
     for (const { item, variant } of response.data.items) {
       const languageCodename = variant && languageCodenames.get(variant.language.id ?? "");
       if (!variant || !languageCodename) continue;
-      latest.set(`${item.codename}/${languageCodename}`, {
-        workflowId: variant.workflow.workflow_identifier.id ?? "",
-        stepId: variant.workflow.step_identifier.id ?? "",
-        publishTime: variant.schedule?.publish_time ?? null,
-        unpublishTime: variant.schedule?.unpublish_time ?? null,
-      });
+      latest.set(`${item.codename}/${languageCodename}`, variantStateOf(variant));
     }
   }
   return { itemTypes, latest };
@@ -323,11 +322,15 @@ const getTargetState = async (
   const latest = variants.latest.get(`${codename}/${languageCodename}`);
   if (!latest) return { status: "new language variant", typeId };
 
-  const publishing = await getPublishingState({ client: target.client, steps, item: { codename }, languageCodename, latest });
+  const publishing = await getPublishingState({
+    client: target.client,
+    steps,
+    item: { codename },
+    languageCodename,
+    latest,
+  });
   return { status: "overwrites existing", typeId, publishing };
 };
-
-const unique = (values: readonly string[]) => [...new Set(values)];
 
 const namesOf = (items: readonly PlannedItem[]) => unique(items.map((p) => p.item.name)).join(", ");
 
@@ -434,7 +437,7 @@ const checkArchiving = (
     stuck.set(workflow, [...(stuck.get(workflow) ?? []), p]);
   }
   return [...stuck.entries()].map(([workflow, archived]) => {
-    const steps = [...targetSteps.values()].filter((s) => s.workflowCodename === workflow);
+    const steps = stepsInWorkflow(targetSteps, workflow);
     const first = steps.find((s) => s.kind === "draft");
     return `These items are archived in the source, but in the target's "${steps[0]?.workflowName ?? workflow}" workflow the first step ("${first?.name ?? "?"}") can't move to Archived, so they can't be copied as archived: ${namesOf(archived)}. Allow that move in the target's workflow, or leave these items out (for linked items, lower the linked items depth).`;
   });
@@ -540,7 +543,17 @@ export const publishModeBlockers = (plan: Plan, mode: PublishMode, targetEnviron
   );
   return archivedOverLive.length
     ? [
-        `These items are archived in the source but live in ${targetEnvironmentName}. Copying them as archived would take them offline, which "Copy as drafts" doesn't do: ${[...new Set(archivedOverLive.map((r) => r.item.name))].join(", ")}. Choose "Match the source", or leave these items out.`,
+        `These items are archived in the source but live in ${targetEnvironmentName}. Copying them as archived would take them offline, which "Copy as drafts" doesn't do: ${unique(archivedOverLive.map((r) => r.item.name)).join(", ")}. Choose "Match the source", or leave these items out.`,
       ]
     : [];
 };
+
+/** What the copy will do to one row in the target with the chosen publishing option. */
+export const predictRow = (row: PlanRow, mode: PublishMode): Prediction =>
+  predict({
+    mode,
+    source: row.sourcePublishing,
+    target: row.targetPublishing,
+    latestStepName: row.latestStepName,
+    firstStepName: row.firstStepName,
+  });
