@@ -160,7 +160,7 @@ export const App = () => {
         {/* One inline run: as separate flex items, the space before the link would be dropped. */}
         <span>
           Not an official Kontent.ai tool ·{" "}
-          <a href="https://github.com/mjstackhouse/item-copier#using-the-tool" target="_blank" rel="noreferrer">
+          <a href="https://github.com/mjstackhouse/item-copier#how-to-use-it" target="_blank" rel="noreferrer">
             How to use it
           </a>
         </span>
