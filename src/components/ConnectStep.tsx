@@ -1,5 +1,6 @@
 import { useId, useState } from "react";
 
+import type { CustomAppSettings } from "../lib/customApp";
 import { type Connection, connect } from "../lib/kontent";
 import { errorMessage } from "../lib/util";
 import { Message, Tooltip } from "./ui";
@@ -7,12 +8,14 @@ import { Message, Tooltip } from "./ui";
 type Props = {
   readonly source?: Connection;
   readonly target?: Connection;
+  /** Set when running as a Kontent.ai custom app. */
+  readonly customApp?: CustomAppSettings;
   readonly onSourceChange: (connection: Connection | undefined) => void;
   readonly onTargetChange: (connection: Connection | undefined) => void;
   readonly onNext: () => void;
 };
 
-export const ConnectStep = ({ source, target, onSourceChange, onTargetChange, onNext }: Props) => {
+export const ConnectStep = ({ source, target, customApp, onSourceChange, onTargetChange, onNext }: Props) => {
   const sameEnvironment = source && target && source.environmentId === target.environmentId;
 
   return (
@@ -23,12 +26,16 @@ export const ConnectStep = ({ source, target, onSourceChange, onTargetChange, on
           label="Copy from (source)"
           permissions="Read content, Read assets, Manage content model and Manage environment settings"
           connection={source}
+          initialEnvironmentId={customApp?.sourceEnvironmentId}
+          currentEnvironmentId={customApp?.currentEnvironmentId}
           onChange={onSourceChange}
         />
         <EnvironmentForm
           label="Copy to (target)"
           permissions="Create, edit, and delete content; Create, edit, and delete assets; Manage content model; and Manage environment settings"
           connection={target}
+          initialEnvironmentId={customApp?.targetEnvironmentId}
+          currentEnvironmentId={customApp?.currentEnvironmentId}
           onChange={onTargetChange}
         />
       </div>
@@ -52,11 +59,22 @@ type FormProps = {
   /** The Management API key permissions this side needs; the app also reads the content model and settings. */
   readonly permissions: string;
   readonly connection?: Connection;
+  /** From the custom app settings; a connection made earlier takes precedence. */
+  readonly initialEnvironmentId?: string;
+  /** The environment the custom app is opened in, offered with "Use this environment". */
+  readonly currentEnvironmentId?: string;
   readonly onChange: (connection: Connection | undefined) => void;
 };
 
-const EnvironmentForm = ({ label, permissions, connection, onChange }: FormProps) => {
-  const [environmentId, setEnvironmentId] = useState(connection?.environmentId ?? "");
+const EnvironmentForm = ({
+  label,
+  permissions,
+  connection,
+  initialEnvironmentId,
+  currentEnvironmentId,
+  onChange,
+}: FormProps) => {
+  const [environmentId, setEnvironmentId] = useState(connection?.environmentId ?? initialEnvironmentId ?? "");
   const [apiKey, setApiKey] = useState(connection?.apiKey ?? "");
   const [status, setStatus] = useState<{ readonly loading: boolean; readonly error?: string }>({ loading: false });
   const id = useId();
@@ -99,6 +117,18 @@ const EnvironmentForm = ({ label, permissions, connection, onChange }: FormProps
           data-bwignore
           data-form-type="other"
         />
+        {currentEnvironmentId && environmentId.trim() !== currentEnvironmentId && (
+          <button
+            type="button"
+            className="link-btn"
+            onClick={() => {
+              setEnvironmentId(currentEnvironmentId);
+              if (connection) onChange(undefined);
+            }}
+          >
+            Use this environment
+          </button>
+        )}
       </div>
       <div className="field">
         <div className="field-label">

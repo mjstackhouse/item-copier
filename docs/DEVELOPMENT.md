@@ -14,6 +14,7 @@ Requires Node.js 20 or later (CI and Netlify use Node.js 22). The commands are i
 | `src/lib/publishing.ts` | Workflow steps, publishing states, and the preview's prediction of each variant's outcome |
 | `src/lib/copy.ts` | Running the toolkit's export and import, adapting the data in between, and summarizing the result |
 | `src/lib/report.ts` | The downloadable copy report |
+| `src/lib/customApp.ts` | Running as a Kontent.ai custom app: the current environment and the optional settings |
 | `src/lib/pacedHttp.ts` | Request pacing (see [Request rate](#request-rate)) |
 | `src/lib/selection.ts`, `src/lib/util.ts` | What the user chose to copy; small shared helpers |
 | `src/components/` | One component per step, plus `LanguagePicker.tsx` and the shared pieces in `ui.tsx` (messages, tooltips, the codename icon, the error boundary) |
@@ -48,6 +49,10 @@ Search uses the Management API's filter endpoint, 50 items per page, plus one bu
 
 - **Match the source** is the toolkit's own behavior: items published in the source are published in the target right away, items published in the target but not in the source are unpublished, and the target's schedules are replaced with the source's.
 - **Copy as drafts** rewrites the exported data before the import (`toDrafts` in `copy.ts`): it drops published versions that have a newer draft, moves published and scheduled versions to the workflow's first step, and removes schedules. Archived versions stay archived, except over a variant that is published in the target, which would be unpublished; those become a draft in the first step instead. Every item is marked `keepTargetPublished`, which the third patch reads to keep the target's published version. The toolkit still cancels any schedule on a target item before copying.
+
+### Running as a custom app
+
+When the page is in an iframe, the app asks Kontent.ai for the custom app context with `getCustomAppContext()` from `@kontent-ai/custom-app-sdk`, which is loaded only then. It uses the environment ID for "Use this environment" and reads `thisEnvironment`, `sourceEnvironmentId` and `targetEnvironmentId` from the settings (`parseCustomAppSettings`). API keys in the settings are ignored on purpose. The SDK waits without a time limit, so after 5 seconds the Connect step appears as in a standalone tab.
 
 ### Copying
 
@@ -90,7 +95,7 @@ Keep its version pinned. After upgrading:
 
 ## Hosting
 
-`dist/` is a static site. `netlify.toml` runs the lint checks and unit tests before building, so a failing test stops the deploy, and sets the security headers: a Content Security Policy that only allows the page's own scripts and connections to the Management API (`manage.kontent.ai`) and the default asset domains (`*.kc-usercontent.com`), plus `Referrer-Policy: no-referrer`.
+`dist/` is a static site. `netlify.toml` runs the lint checks and unit tests before building, so a failing test stops the deploy, and sets the security headers: a Content Security Policy that only allows the page's own scripts and connections to the Management API (`manage.kontent.ai`) and the default asset domains (`*.kc-usercontent.com`), plus `Referrer-Policy: no-referrer`. `frame-ancestors` lets only `https://app.kontent.ai` embed the page, for running as a custom app.
 
 Builds must run npm's install scripts (the default on Netlify, Vercel and Azure Static Web Apps). With `--ignore-scripts` the patches aren't applied and copies with assets fail.
 
@@ -100,7 +105,7 @@ Builds must run npm's install scripts (the default on Netlify, Vercel and Azure 
 
 ### Unit tests
 
-`npm test` runs the unit tests (`src/**/*.test.ts`, Vitest). They cover the rules that decide what the copy does, using small made-up environments from `src/test/fixtures.ts` instead of real data: publishing predictions and step fallbacks, workflow scopes and archiving, the "Copy as drafts" rewrite, the blockers that depend on the publishing option, finding linked items, assets and taxonomy terms, the copy report, the search filter request and request pacing. They don't call the Management API.
+`npm test` runs the unit tests (`src/**/*.test.ts`, Vitest). They cover the rules that decide what the copy does, using small made-up environments from `src/test/fixtures.ts` instead of real data: publishing predictions and step fallbacks, workflow scopes and archiving, the "Copy as drafts" rewrite, the blockers that depend on the publishing option, finding linked items, assets and taxonomy terms, the copy report, the custom app settings, the search filter request and request pacing. They don't call the Management API.
 
 GitHub Actions (`.github/workflows/ci.yml`) runs a clean install, the lint checks, the typecheck, the unit tests and the build on every push and pull request.
 

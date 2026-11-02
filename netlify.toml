@@ -9,10 +9,11 @@
 # it copies files from, and may only run its own scripts.
 # - style-src 'unsafe-inline': react-select adds its styles at runtime.
 # - connect-src: the API, and the default asset domains the toolkit downloads asset files from.
+# - frame-ancestors: only Kontent.ai may embed it, as a custom app.
 [[headers]]
   for = "/*"
   [headers.values]
-    Content-Security-Policy = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://manage.kontent.ai https://*.kc-usercontent.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    Content-Security-Policy = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://manage.kontent.ai https://*.kc-usercontent.com; base-uri 'none'; form-action 'none'; frame-ancestors https://app.kontent.ai"
     Referrer-Policy = "no-referrer"
     X-Content-Type-Options = "nosniff"
     Permissions-Policy = "camera=(), microphone=(), geolocation=()"

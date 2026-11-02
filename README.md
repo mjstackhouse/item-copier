@@ -54,6 +54,35 @@ It runs entirely in your browser. There is no server, and your API keys are neve
 - **Not copied**: workflow history, comments, tasks and assignees.
 - **Deleted references**: the copy stops on a reference to an item or asset that no longer exists, unless you skip such references. The preview tells you when there are any.
 
+## Running as a Kontent.ai custom app
+
+The tool can also run inside Kontent.ai as a [custom app](https://kontent.ai/learn/docs/custom-apps), pointed at wherever you've deployed it:
+
+1. In Kontent.ai, go to **Environment settings > Custom apps** and click **Create new custom app**.
+2. Enter a name and the hosted URL, for example `https://item-copier.netlify.app/`.
+3. Choose the roles that can use it, and the **Full screen** display mode.
+4. Optionally, add settings in **Parameters {JSON}** (see below), then click **Save changes**.
+
+Running this way, each environment on the Connect step offers **Use this environment**, which fills in the ID of the environment the app is opened in. You still enter the API keys yourself.
+
+### Configuring the custom app
+
+No settings are needed. To fill in environment IDs automatically, for example when content is regularly copied from this environment to a specific other one, add:
+
+```json
+{
+  "thisEnvironment": "source",
+  "targetEnvironmentId": "975bf280-fd91-488c-994c-2f04416e5ee3"
+}
+```
+
+- `thisEnvironment`: `"source"` or `"target"`, to fill that side with the environment the app is opened in.
+- `sourceEnvironmentId`, `targetEnvironmentId`: an environment ID for either side. These take precedence over `thisEnvironment`.
+
+To try a local version as a custom app, run `npm run dev`, open the HTTPS address it prints once in your browser and accept the certificate warning (the certificate is self-signed), then use that address as the custom app's hosted URL.
+
+API keys can't be added to the settings. Kontent.ai's documentation advises against storing API keys in custom app parameters, because anyone who can open the app can read them, and this tool's keys can create, edit and delete content.
+
 ## Deploying
 
 Netlify makes it easy to deploy and host your own copy. The button below guides you through deploying it to Netlify and leaves you with a copy of the repository in your GitHub account.
@@ -66,7 +95,7 @@ Netlify makes it easy to deploy and host your own copy. The button below guides 
 
 ```bash
 npm install      # also applies the toolkit patches in patches/
-npm run dev      # local dev server
+npm run dev      # local dev server over HTTPS (npm run dev:http for plain HTTP)
 npm test         # unit tests
 npm run lint     # formatting and lint checks
 npm run build    # typecheck and production build

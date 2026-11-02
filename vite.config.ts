@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import basicSsl from "@vitejs/plugin-basic-ssl";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
@@ -30,8 +31,10 @@ const patchesHash = existsSync(patchesDir)
       .digest("hex")
   : "none";
 
-export default defineConfig({
-  plugins: [react()],
+// The dev server uses HTTPS with a self-signed certificate, because Kontent.ai only loads custom apps
+// from HTTPS URLs. `npm run dev:http` (the "http" mode) serves plain HTTP instead.
+export default defineConfig(({ mode }) => ({
+  plugins: [react(), ...(mode === "http" ? [] : [basicSsl()])],
   // The toolkit and the Management SDK make one large bundle; that is expected for this tool.
   build: { chunkSizeWarningLimit: 1500 },
   resolve: {
@@ -43,4 +46,4 @@ export default defineConfig({
   },
   // The esbuild options are part of Vite's dependency cache key; the defined name is never used.
   optimizeDeps: { esbuildOptions: { define: { __TOOLKIT_PATCHES_HASH__: JSON.stringify(patchesHash) } } },
-});
+}));

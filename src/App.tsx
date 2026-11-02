@@ -5,6 +5,7 @@ import { CopyStep } from "./components/CopyStep";
 import { PreviewStep } from "./components/PreviewStep";
 import { Message } from "./components/ui";
 import { emptySearch, type SearchState, SelectStep } from "./components/SelectStep";
+import { type CustomAppSettings, insideKontentAi, loadCustomAppSettings } from "./lib/customApp";
 import { type Connection, loadSourceData, type SourceData } from "./lib/kontent";
 import type { Plan } from "./lib/plan";
 import type { PublishMode } from "./lib/publishing";
@@ -30,6 +31,17 @@ export const App = () => {
   const [search, setSearch] = useState<SearchState>(emptySearch);
   const [plan, setPlan] = useState<Plan>();
   const [publishMode, setPublishMode] = useState<PublishMode>("match");
+  // Inside Kontent.ai, the Connect step waits for the custom app settings so it can fill in environment IDs.
+  const [customApp, setCustomApp] = useState<CustomAppSettings>();
+  const [customAppLoading, setCustomAppLoading] = useState(insideKontentAi);
+
+  useEffect(() => {
+    if (!insideKontentAi()) return;
+    loadCustomAppSettings().then((settings) => {
+      setCustomApp(settings);
+      setCustomAppLoading(false);
+    });
+  }, []);
 
   // Load languages and types whenever the source changes. Items are searched for on demand.
   useEffect(() => {
@@ -81,15 +93,24 @@ export const App = () => {
         </ol>
       </header>
 
-      {step === "connect" && (
-        <ConnectStep
-          source={source}
-          target={target}
-          onSourceChange={setSource}
-          onTargetChange={setTarget}
-          onNext={() => setStep("select")}
-        />
-      )}
+      {step === "connect" &&
+        (customAppLoading ? (
+          <section>
+            <h2>Connect environments</h2>
+            <p className="loading-general" role="status">
+              Loading environment info from Kontent.ai
+            </p>
+          </section>
+        ) : (
+          <ConnectStep
+            source={source}
+            target={target}
+            customApp={customApp}
+            onSourceChange={setSource}
+            onTargetChange={setTarget}
+            onNext={() => setStep("select")}
+          />
+        ))}
 
       {step === "select" &&
         (source && sourceData ? (

@@ -691,6 +691,11 @@ main > section > .loading-general::before {
   text-decoration: underline;
 }
 
+/* "Use this environment" under the environment ID field. */
+.field .link-btn {
+  align-self: flex-start;
+}
+
 .item-list {
   max-height: 420px;
   margin: 0;
