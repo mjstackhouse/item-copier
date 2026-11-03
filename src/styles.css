@@ -691,6 +691,11 @@ main > section > .loading-general::before {
   text-decoration: underline;
 }
 
+/* The API key field: a text field shown as dots, so password managers don't offer to save the key. */
+.masked-input {
+  -webkit-text-security: disc;
+}
+
 /* "Use this environment" under the environment ID field. */
 .field .link-btn {
   align-self: flex-start;

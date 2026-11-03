@@ -54,6 +54,8 @@ export const ConnectStep = ({ source, target, customApp, onSourceChange, onTarge
   );
 };
 
+const canMaskText = typeof CSS !== "undefined" && CSS.supports("-webkit-text-security", "disc");
+
 type FormProps = {
   readonly label: string;
   /** The Management API key permissions this side needs; the app also reads the content model and settings. */
@@ -137,7 +139,24 @@ const EnvironmentForm = ({
             text={`A Management API key for this environment, from Project settings > API keys, with these permissions: ${permissions}. It is kept in this browser tab only and cleared when you close or reload it.`}
           />
         </div>
-        <input id={`${id}-key`} type="password" value={apiKey} onChange={edit(setApiKey)} />
+        {/* Password managers offer to save a password field when the form goes away, which the attributes
+            above don't stop. So where the browser can mask a text field, the key is one (see .masked-input);
+            elsewhere it stays a password field. Spell checking is off so the key isn't sent to a spelling service. */}
+        <input
+          id={`${id}-key`}
+          type={canMaskText ? "text" : "password"}
+          className={canMaskText ? "masked-input" : undefined}
+          value={apiKey}
+          onChange={edit(setApiKey)}
+          autoComplete="off"
+          spellCheck={false}
+          autoCapitalize="off"
+          autoCorrect="off"
+          data-1p-ignore
+          data-lpignore="true"
+          data-bwignore
+          data-form-type="other"
+        />
       </div>
       <button
         type="submit"
