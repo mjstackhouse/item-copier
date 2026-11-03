@@ -1,8 +1,10 @@
 import { useEffect, useId, useRef, useState } from "react";
 
-import type { Connection, SourceData } from "../lib/kontent";
+import { type KontentSelection, loadSelectedItems, selectionChange, selectionKey } from "../lib/customApp";
+import type { Connection, Item, SourceData } from "../lib/kontent";
 import { buildPlan, type Plan, type PlanRow, predictRow, publishModeBlockers, type TargetStatus } from "../lib/plan";
 import type { LiveEffect, Prediction, PublishMode } from "../lib/publishing";
+import { groupByItem, type ItemResults, type Result } from "../lib/itemResults";
 import { languagesToCopy, type Selection } from "../lib/selection";
 import { errorMessage, plural, unique } from "../lib/util";
 import { Codename, Message } from "./ui";
@@ -13,6 +15,11 @@ type Props = {
   readonly sourceData: SourceData;
   readonly selection: Selection;
   readonly publishMode: PublishMode;
+  /** In a Kontent.ai dialog, which closing stops a copy, rather than a browser tab. */
+  readonly inDialog: boolean;
+  /** In a dialog: what is selected in Kontent.ai now, which may have changed since Choose items. */
+  readonly kontentSelection?: KontentSelection;
+  readonly onPickedItemsChange: (items: readonly Item[], fromKey: string) => void;
   readonly onPublishModeChange: (mode: PublishMode) => void;
   readonly onSkipMissingReferencesChange: (skip: boolean) => void;
   readonly onBack: () => void;
@@ -25,6 +32,9 @@ export const PreviewStep = ({
   sourceData,
   selection,
   publishMode,
+  inDialog,
+  kontentSelection,
+  onPickedItemsChange,
   onPublishModeChange,
   onSkipMissingReferencesChange,
   onBack,
@@ -34,6 +44,7 @@ export const PreviewStep = ({
   const [progress, setProgress] = useState("Starting");
   const [error, setError] = useState<string>();
   const [filter, setFilter] = useState("all");
+  const [updating, setUpdating] = useState<{ readonly loading?: boolean; readonly error?: string }>({});
   const dialog = useRef<HTMLDialogElement>(null);
   const id = useId();
 
@@ -41,6 +52,10 @@ export const PreviewStep = ({
   const { pickedItems, linkedItemsDepth, copyAllLanguages, chosenLanguages } = selection;
   useEffect(() => {
     let cancelled = false;
+    // A rebuild (after "Update preview") shows its progress rather than the old preview.
+    setPlan(undefined);
+    setError(undefined);
+    setProgress("Starting");
     buildPlan({
       source,
       target,
@@ -114,6 +129,7 @@ export const PreviewStep = ({
       ? plural(copiedLanguages.length, "language")
       : copiedLanguages.map(languageName).join(", ");
   const newVariants = plan.rows.length - overwrites;
+  const mixedItems = groupByItem(rows).filter((i) => i.otherResults > 0).length;
   const summaryParts = [
     `${plural(itemCount, "item")} in ${plural(plan.rows.length, "language variant")} (${languageSummary})`,
     newVariants > 0 && `${newVariants} new`,
@@ -121,6 +137,8 @@ export const PreviewStep = ({
     goesLive > 0 && `${goesLive} published`,
     replacesLive > 0 && `${replacesLive} ${replacesLive === 1 ? "replaces its" : "replace their"} published version`,
     unpublished > 0 && `${unpublished} unpublished`,
+    // The dialog lists items with one result each, so it says which items to open for the rest.
+    inDialog && mixedItems > 0 && `${plural(mixedItems, "item")} with different results per language`,
   ].filter((text): text is string => !!text);
 
   const missingReferences = [
@@ -162,7 +180,21 @@ export const PreviewStep = ({
   const variantCount = (id: string) => shownRows.filter(({ row }) => row.id === id).length;
   const namesById = new Map(plan.rows.map((r) => [r.id, r.item.name]));
 
-  const startCopy = () => (consequences.length > 0 ? dialog.current?.showModal() : onConfirm(plan));
+  // The copy uses the reviewed items, so a changed selection is pointed out, never applied without asking.
+  const changed =
+    kontentSelection &&
+    selectionChange({ ids: pickedItems.map((i) => i.id), key: selection.pickedFromKey }, kontentSelection);
+  const updatePreview = (selected: KontentSelection) => {
+    setUpdating({ loading: true });
+    loadSelectedItems(source.client, selected, selection.languageCodename)
+      .then((items) => {
+        setUpdating({});
+        onPickedItemsChange(items, selectionKey(selected));
+      })
+      .catch((e: unknown) => setUpdating({ error: `Could not load the selected items: ${errorMessage(e)}` }));
+  };
+
+  const startCopy = () => (consequences.length > 0 || changed ? dialog.current?.showModal() : onConfirm(plan));
 
   return (
     <section>
@@ -176,6 +208,36 @@ export const PreviewStep = ({
         ))}
       </p>
 
+      {changed && (
+        <Message kind="warning">
+          {changed.empty ? (
+            <p>Nothing is selected in Kontent.ai now. The copy uses the items in this preview.</p>
+          ) : (
+            <>
+              <p>
+                The selection in Kontent.ai has changed since this preview
+                {changed.counts &&
+                  ` (${[
+                    changed.counts.added > 0 && `${plural(changed.counts.added, "item")} added`,
+                    changed.counts.removed > 0 && `${plural(changed.counts.removed, "item")} removed`,
+                  ]
+                    .filter(Boolean)
+                    .join(", ")})`}
+                . {/* A text link at the end of the sentence, like "Show details", so the notice stays compact. */}
+                <button
+                  type="button"
+                  className="message-action"
+                  disabled={updating.loading}
+                  onClick={() => kontentSelection && updatePreview(kontentSelection)}
+                >
+                  {updating.loading ? "Updating preview…" : "Update preview"}
+                </button>
+              </p>
+              {updating.error && <p>{updating.error}</p>}
+            </>
+          )}
+        </Message>
+      )}
       {blockers.map((b) => (
         <Message key={b} kind="error">
           {b}
@@ -210,8 +272,9 @@ export const PreviewStep = ({
               )}
               {plan.rows.length > largeCopy && (
                 <li>
-                  This is a large copy. It runs in this tab and can take a while, so keep the tab open until it
-                  finishes. If the linked items depth pulled in more than you need, go back and lower it.
+                  This is a large copy. It runs in this {inDialog ? "dialog" : "tab"} and can take a while, so keep the{" "}
+                  {inDialog ? "dialog" : "tab"} open until it finishes. If the linked items depth pulled in more than
+                  you need, go back and lower it.
                 </li>
               )}
               {plan.notes.map((n) => (
@@ -275,74 +338,89 @@ export const PreviewStep = ({
         </fieldset>
       )}
 
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Item</th>
-              <th>Type</th>
-              <th>Language</th>
-              <th>Result</th>
-            </tr>
-          </thead>
-          <tbody>
-            {shownRows.map(({ row, prediction }, index) => (
-              <tr
-                key={`${row.id}-${row.languageCodename}`}
-                className={shownRows[index - 1]?.row.id === row.id ? "same-item" : undefined}
-              >
-                {/* An item's variants are next to each other; its name and type span them. */}
-                {shownRows[index - 1]?.row.id !== row.id && (
-                  <>
-                    <td rowSpan={variantCount(row.id)}>
-                      {row.item.name}
-                      <Codename codename={row.item.codename} />
-                      {row.depth > 0 && (
-                        <div className="muted linked-from">
-                          Linked from {namesById.get(row.linkedFrom ?? "") ?? "?"}
-                        </div>
-                      )}
-                    </td>
-                    <td rowSpan={variantCount(row.id)} className="nowrap-cell">
-                      {sourceData.typesById.get(row.item.typeId)?.name ?? row.typeCodename}
-                      <Codename codename={row.typeCodename} />
-                    </td>
-                  </>
-                )}
-                <td className="nowrap-cell">
-                  {languageName(row.languageCodename)}
-                  <Codename codename={row.languageCodename} />
-                </td>
-                <td>
-                  <div className="badges">
-                    <span className={`badge ${row.targetStatus === "overwrites existing" ? "badge-warn" : ""}`}>
-                      {targetStatusLabel[row.targetStatus]}
-                    </span>
-                    {prediction.effects.map((effect) => (
-                      <span key={effect} className={`badge ${effectBadgeClass[effect]}`}>
-                        {effectLabel[effect]}
-                      </span>
-                    ))}
-                  </div>
-                  {!saidByBadge(prediction) && prediction.outcome}
-                </td>
+      {inDialog ? (
+        <PreviewItemList
+          items={groupByItem(shownRows)}
+          sourceData={sourceData}
+          languageName={languageName}
+          namesById={namesById}
+        />
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Type</th>
+                <th>Language</th>
+                <th>Result</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {shownRows.map(({ row, prediction }, index) => (
+                <tr
+                  key={`${row.id}-${row.languageCodename}`}
+                  className={shownRows[index - 1]?.row.id === row.id ? "same-item" : undefined}
+                >
+                  {/* An item's variants are next to each other; its name and type span them. */}
+                  {shownRows[index - 1]?.row.id !== row.id && (
+                    <>
+                      <td rowSpan={variantCount(row.id)}>
+                        {row.item.name}
+                        <Codename codename={row.item.codename} />
+                        {row.depth > 0 && (
+                          <div className="muted linked-from">
+                            Linked from {namesById.get(row.linkedFrom ?? "") ?? "?"}
+                          </div>
+                        )}
+                      </td>
+                      <td rowSpan={variantCount(row.id)} className="nowrap-cell">
+                        {sourceData.typesById.get(row.item.typeId)?.name ?? row.typeCodename}
+                        <Codename codename={row.typeCodename} />
+                      </td>
+                    </>
+                  )}
+                  <td className="nowrap-cell">
+                    {languageName(row.languageCodename)}
+                    <Codename codename={row.languageCodename} />
+                  </td>
+                  <td>
+                    <div className="badges">
+                      <span className={`badge ${row.targetStatus === "overwrites existing" ? "badge-warn" : ""}`}>
+                        {targetStatusLabel[row.targetStatus]}
+                      </span>
+                      {prediction.effects.map((effect) => (
+                        <span key={effect} className={`badge ${effectBadgeClass[effect]}`}>
+                          {effectLabel[effect]}
+                        </span>
+                      ))}
+                    </div>
+                    {!saidByBadge(prediction) && prediction.outcome}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <dialog ref={dialog} className="confirm-dialog" aria-labelledby={`${id}-confirm-title`}>
         <h3 id={`${id}-confirm-title`}>
           Copy {plural(plan.rows.length, "variant")} to {target.environmentName}?
         </h3>
-        <p>In {target.environmentName}:</p>
-        <ul>
-          {consequences.map((text) => (
-            <li key={text}>{text}</li>
-          ))}
-        </ul>
-        <p>This can&apos;t be undone.</p>
+        {consequences.length > 0 && (
+          <>
+            <p>In {target.environmentName}:</p>
+            <ul>
+              {consequences.map((text) => (
+                <li key={text}>{text}</li>
+              ))}
+            </ul>
+            <p>This can&apos;t be undone in Item Copier.</p>
+          </>
+        )}
+        {changed && <p>The copy uses the items in this preview, not the current selection in Kontent.ai.</p>}
+        {inDialog && <p>Keep Item Copier open until the copy finishes. Closing it stops the copy.</p>}
         <div className="dialog-actions">
           {/* First in the dialog, so opening it focuses Cancel: the safe choice is the default. */}
           <button type="button" className="btn back-btn" onClick={() => dialog.current?.close()}>
@@ -440,3 +518,125 @@ const listLanguages = (languages: readonly string[], limit = 6) =>
   languages.length > limit
     ? `${languages.slice(0, limit).join(", ")} and ${languages.length - limit} more`
     : languages.join(", ");
+
+const resultLabel: Record<Result, string> = { ...targetStatusLabel, ...effectLabel };
+
+const resultBadgeClass = (result: Result) =>
+  result === "overwrites existing"
+    ? "badge-warn"
+    : result in effectBadgeClass
+      ? effectBadgeClass[result as LiveEffect]
+      : "";
+
+type PreviewItemListProps = {
+  readonly items: readonly ItemResults[];
+  readonly sourceData: SourceData;
+  readonly languageName: (codename: string) => string;
+  readonly namesById: ReadonlyMap<string, string>;
+};
+
+/**
+ * The preview in a dialog, where a table doesn't fit: one row per item with its riskiest result, and the
+ * languages, type and codenames in an expandable part.
+ */
+const PreviewItemList = ({ items, ...rest }: PreviewItemListProps) => (
+  <ul className="preview-items" aria-label="Items to copy">
+    {items.map((item) => (
+      <PreviewItem key={item.id} item={item} {...rest} />
+    ))}
+  </ul>
+);
+
+/**
+ * One item. Not a <details>: its summary can't hold another control, and the item's codename icon sits next to
+ * its name, as in the table. The name is the toggle, stretched over the whole row, with the icon above it.
+ */
+const PreviewItem = ({
+  item: { variants, main, otherResults },
+  sourceData,
+  languageName,
+  namesById,
+}: Omit<PreviewItemListProps, "items"> & { readonly item: ItemResults }) => {
+  const [open, setOpen] = useState(false);
+  const detailsId = useId();
+  const { row: first } = variants[0] as (typeof variants)[number];
+  const languages = variants.map((v) => languageName(v.row.languageCodename));
+
+  return (
+    <li className={open ? "open" : undefined}>
+      <div className="preview-item-header">
+        <span className="preview-item-name">
+          <span>
+            {/* Not a <button>: browsers lay buttons out as a block, so a long name couldn't wrap like text with the
+                codename icon after its last word. It behaves as a button for the keyboard and screen readers. */}
+            {/* biome-ignore lint/a11y/useSemanticElements: see above */}
+            <span
+              role="button"
+              tabIndex={0}
+              className="preview-item-toggle item-name"
+              aria-expanded={open}
+              aria-controls={detailsId}
+              onClick={() => setOpen(!open)}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter" && e.key !== " ") return;
+                e.preventDefault();
+                setOpen(!open);
+              }}
+            >
+              {first.item.name}
+            </span>
+            <Codename codename={first.item.codename} />
+          </span>
+          {/* Under the name rather than beside it, so long names get the full width. */}
+          <span className="preview-item-result">
+            <span className={`badge ${resultBadgeClass(main)}`}>{resultLabel[main]}</span>
+            {otherResults > 0 && (
+              <span className="muted" title={`${plural(otherResults, "other result")} in other languages`}>
+                +{otherResults}
+              </span>
+            )}
+          </span>
+          {/* The type matters most for linked items, which aren't in the selection in Kontent.ai. */}
+          <span className="preview-item-meta">
+            <span className="muted">Content type:</span>{" "}
+            {sourceData.typesById.get(first.item.typeId)?.name ?? first.typeCodename}
+          </span>
+          <span className="preview-item-meta">
+            <span className="muted">{languages.length === 1 ? "Language:" : "Languages:"}</span>{" "}
+            {listLanguages(languages, 3)}
+          </span>
+          {first.depth > 0 && (
+            <span className="muted linked-from">Linked from {namesById.get(first.linkedFrom ?? "") ?? "?"}</span>
+          )}
+        </span>
+      </div>
+      {open && (
+        <div id={detailsId} className="preview-item-details">
+          <ul aria-label="Language variants">
+            {variants.map(({ row, prediction }) => (
+              <li key={row.languageCodename}>
+                <span className="preview-item-language">
+                  {languageName(row.languageCodename)}
+                  <Codename codename={row.languageCodename} />
+                </span>
+                <span>
+                  <span className="badges">
+                    <span className={`badge ${resultBadgeClass(row.targetStatus)}`}>
+                      {targetStatusLabel[row.targetStatus]}
+                    </span>
+                    {prediction.effects.map((effect) => (
+                      <span key={effect} className={`badge ${effectBadgeClass[effect]}`}>
+                        {effectLabel[effect]}
+                      </span>
+                    ))}
+                  </span>
+                  {!saidByBadge(prediction) && prediction.outcome}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </li>
+  );
+};

@@ -96,8 +96,8 @@ export class ErrorBoundary extends Component<{ readonly children: ReactNode }, {
         <Message kind="error">
           <p>Something went wrong on this page: {errorMessage(this.state.error)}</p>
           <p>
-            A copy that was running keeps going in the background while this tab stays open. Wait a minute before you
-            reload the page, then check the target environment.
+            A copy that was running keeps going in the background while this page stays open. Wait a minute before you
+            reload it, then check the target environment.
           </p>
         </Message>
       </main>

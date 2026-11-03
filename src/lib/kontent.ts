@@ -1,4 +1,4 @@
-import { type ContentTypeElements, ManagementClient } from "@kontent-ai/management-sdk";
+import { type ContentTypeElements, type LanguageVariantModels, ManagementClient } from "@kontent-ai/management-sdk";
 
 import { createPacedHttpService } from "./pacedHttp";
 import { loadWorkflowSteps, type VariantState, type WorkflowSteps } from "./publishing";
@@ -375,6 +375,28 @@ export const getItemsWithVariants = async (
   }
 
   return result;
+};
+
+/** The `filters` of a filter request, as the Management API takes them. */
+export type FilterContract = NonNullable<LanguageVariantModels.IFilterItemsWithVariantsData["filters"]>;
+
+/** The ids of every item matching the filters, by name, across all pages. */
+export const findItemIds = async (client: ManagementClient, filters: FilterContract): Promise<string[]> => {
+  const response = await client
+    .filterItemsWithVariants()
+    .withData({ filters, order: { by: "name", direction: "asc" } })
+    .toAllPromise();
+  return response.data.items.flatMap((r) => (r.item.id ? [r.item.id] : []));
+};
+
+/** The items with these ids, in the same order; items that no longer exist are left out. */
+export const loadItems = async (
+  client: ManagementClient,
+  ids: readonly string[],
+  languageCodename: string,
+): Promise<Item[]> => {
+  const found = await getItemsWithVariants(client, ids, languageCodename);
+  return ids.flatMap((id) => found.get(id)?.item ?? []);
 };
 
 /** The ids of these assets that no longer exist. One request per asset: there is no bulk get for assets. */

@@ -29,7 +29,7 @@ It runs entirely in your browser. There is no server, and your API keys are neve
 
 ## Before you start
 
-- **Try it on a test environment first.** Copying overwrites items that already exist in the target, and it can't be undone. Before copying into an environment that matters, back it up, for example with a data-ops export.
+- **Try it on a test environment first.** Copying overwrites items that already exist in the target, and it can't be undone in Item Copier.
 - **The target needs the same content model**: content types (with the same elements), taxonomy groups and terms, collections, languages and workflows, matched by codename. The preview tells you what's missing; data-ops `sync` can align the models.
 - **Create a Management API key for each environment** in **Project settings > API keys**, with these permissions:
   - Source: _Read content_, _Read assets_, _Manage content model_ and _Manage environment settings_.
@@ -40,7 +40,7 @@ It runs entirely in your browser. There is no server, and your API keys are neve
 ## How to use it
 
 1. **Connect**: enter the environment ID and API key for the source and the target.
-2. **Choose items**: search, filter and tick the items to copy. Under **Copy settings**, choose the languages, how many levels of linked items to include, and whether to skip references to deleted items.
+2. **Choose items**: search, filter and tick the items to copy. Under **Copy settings**, choose the languages, how many levels of linked items to include, and whether to skip references to deleted items and assets.
 3. **Preview**: check what will happen to each item. Errors at the top block the copy and say how to fix the cause. Choose how publishing is handled:
    - **Match the source**: items end up published, unpublished, scheduled or archived as in the source. This can publish or unpublish items in the target right away.
    - **Copy as drafts**: nothing is published or unpublished. Items published in the target stay published, with the copied content as a new draft.
@@ -60,14 +60,24 @@ The tool can also run inside Kontent.ai as a [custom app](https://kontent.ai/lea
 
 1. In Kontent.ai, go to **Environment settings > Custom apps** and click **Create new custom app**.
 2. Enter a name and the hosted URL, for example `https://item-copier.netlify.app/`.
-3. Choose the roles that can use it, and the **Full screen** display mode.
+3. Choose the roles that can use it, and the **Full screen** or **Dialog** display mode (see below).
 4. Optionally, add settings in **Parameters {JSON}** (see below), then click **Save changes**.
 
-Running this way, each environment on the Connect step offers **Use this environment**, which fills in the ID of the environment the app is opened in. You still enter the API keys yourself.
+In **Full screen** mode, each environment on the Connect step offers **Use this environment**, which fills in the ID of the environment the app is opened in. You still enter the API keys yourself.
+
+### Dialog mode
+
+In **Dialog** mode, the tool opens next to the page you're on, and you choose items in Kontent.ai itself instead of searching for them:
+
+1. Open the content inventory and select items with their checkboxes, or open an item to copy that item. The checkbox in the inventory's header selects every item that matches the inventory's filters, including ones the listing doesn't show.
+2. Open Item Copier from the custom apps dialog. The source is the environment you're in; enter its API key and the target environment.
+3. On **Choose items**, the list shows what's selected in Kontent.ai and updates as you change the selection. Copy settings, the preview and the copy work as in full screen. If you change the selection after opening the preview, the preview says so and offers **Update preview**; until then, the copy uses the items in the preview.
+
+The dialog doesn't keep anything when it's closed, so you enter the API keys each time you open it, and closing it while a copy runs stops the copy.
 
 ### Configuring the custom app
 
-No settings are needed. To fill in environment IDs automatically, for example when content is regularly copied from this environment to a specific other one, add:
+No settings are needed. To fill in environment IDs automatically (in Dialog mode, only `targetEnvironmentId` is used), for example when content is regularly copied from this environment to a specific other one, add:
 
 ```json
 {

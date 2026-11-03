@@ -75,6 +75,85 @@ main > section {
   }
 }
 
+/* A Kontent.ai custom app dialog: a narrow window next to the content inventory, laid out like a phone app. It
+   scrolls rather than widening, and the footer scrolls with the page to leave room for the step. */
+main.dialog-mode {
+  --footer-height: 0px;
+  padding: 4.5rem 1rem 0;
+}
+
+.dialog-mode #app-title {
+  padding: 1rem;
+}
+
+.dialog-mode .intro {
+  margin-bottom: 1rem;
+  font-size: 13px;
+}
+
+.dialog-mode .stepper {
+  gap: 6px;
+}
+
+.dialog-mode .stepper li {
+  padding: 3px 9px;
+  font-size: 12px;
+}
+
+.dialog-mode .two-columns {
+  grid-template-columns: 1fr;
+}
+
+.dialog-mode .card {
+  padding: 1rem;
+}
+
+/* The settings card is padded by its summary and body instead, so the whole summary row stays clickable. */
+.dialog-mode .settings-card {
+  padding: 0;
+}
+
+.dialog-mode .settings-card > summary {
+  padding: 1rem 1rem 1rem 3rem;
+}
+
+.dialog-mode .settings-card > summary::before {
+  left: 1rem;
+}
+
+.dialog-mode .settings-body {
+  padding: 0.5rem 1rem 1.5rem 3rem;
+}
+
+.dialog-mode .copied-list ul {
+  padding: 0.5rem 1rem 1rem 3rem;
+}
+
+/* Why the next button is disabled goes on its own line, and the two buttons share the row below. */
+.dialog-mode .actions {
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 1rem 0;
+}
+
+.dialog-mode .actions .actions-hint {
+  flex-basis: 100%;
+  order: -1;
+  margin: 0;
+  text-align: left;
+}
+
+.dialog-mode .actions .btn {
+  flex: 1;
+  margin: 0;
+}
+
+.dialog-mode .app-footer {
+  position: static;
+  height: auto;
+  padding: 0.75rem 0;
+}
+
 /* Title bar */
 
 #app-title {
@@ -134,6 +213,11 @@ h3,
   margin: 0 0 1rem;
   font-size: 16px;
   font-weight: 700;
+}
+
+/* Focused on step changes for screen readers, not as a control, so no focus ring. */
+h2[tabindex="-1"]:focus {
+  outline: none;
 }
 
 /* Step headings ("Preview", "Choose items") stand clearly above section headings ("Publishing"). */
@@ -235,7 +319,7 @@ h2 {
   flex-wrap: wrap;
   align-items: baseline;
   gap: 4px 12px;
-  padding: 1rem 1.5rem 1rem 3rem;
+  padding: 1rem 1.5rem 1rem 3.5rem;
   border-radius: 1rem;
   list-style: none;
   cursor: pointer;
@@ -245,14 +329,14 @@ h2 {
   display: none;
 }
 
+/* Lined up with the heading's first line, not the middle of the summary, which can wrap onto more lines. */
 .settings-card > summary::before {
   content: "";
   position: absolute;
   left: 1.25rem;
-  top: 50%;
+  top: calc(1rem + 2px);
   width: 20px;
   height: 20px;
-  transform: translateY(-50%);
   background:
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke-width='1.5' stroke='%23151515'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='m19.5 8.25-7.5 7.5-7.5-7.5' /%3E%3C/svg%3E")
     center / contain no-repeat;
@@ -260,30 +344,59 @@ h2 {
 }
 
 .settings-card[open] > summary::before {
-  transform: translateY(-50%) rotate(180deg);
+  transform: rotate(180deg);
 }
 
 .settings-card > summary:hover {
   background-color: var(--light-gray);
 }
 
+/* A fixed line height, so the chevron can be centered on the first line (24px line, 20px chevron). */
 .settings-card > summary .section-heading {
   margin: 0;
+  line-height: 24px;
 }
 
 .settings-body {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  padding: 0.5rem 1.5rem 1.5rem;
+  /* Lined up with the summary's label, so the settings read as part of the section, with the chevron hanging left. */
+  padding: 0.5rem 1.5rem 1.5rem 3.5rem;
 }
 
 /* The results screen's list of copied variants, collapsed like the copy settings. */
 .copied-list ul {
   max-height: 360px;
   margin: 0;
-  padding: 0.5rem 1.5rem 1.5rem 3rem;
+  padding: 0.5rem 1.5rem 1.5rem 3.5rem;
   overflow-y: auto;
+}
+
+/* One row per item: its name, then a link per language, with dividers like the preview's rows. */
+.copied-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 0;
+  list-style: none;
+}
+
+.copied-list li + li {
+  border-top: 1px solid var(--dark-gray);
+}
+
+.copied-languages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 0;
+}
+
+/* Decorative: the empty alternative text keeps screen readers from reading the dot. */
+.copied-languages > span + span::before {
+  content: "·" / "";
+  margin: 0 6px;
+  color: var(--color-gray-500);
 }
 
 .depth-select {
@@ -378,6 +491,12 @@ select {
   font-weight: 400;
 }
 
+/* The source environment in a dialog, which is always the environment the app is opened in. As specific as the
+   rule above, so it wins. */
+input[readonly]:not([type="checkbox"]):not([type="radio"]) {
+  background-color: var(--color-gray-100);
+}
+
 input:not([type="checkbox"]):not([type="radio"]):hover,
 input:not([type="checkbox"]):not([type="radio"]):focus,
 select:hover,
@@ -392,7 +511,8 @@ input[type="radio"] {
   cursor: pointer;
 }
 
-.copy-languages {
+/* A Copy settings group with a heading: "Languages to copy", "Missing references". */
+.settings-group {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -402,13 +522,14 @@ input[type="radio"] {
   border: none;
 }
 
+/* One choice per line, so the list reads top to bottom and the language search appears right below its choice. */
 .copy-languages-modes {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px 24px;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.copy-languages legend {
+.settings-group legend {
   width: 100%;
   margin-bottom: 2px;
   padding: 0;
@@ -491,7 +612,7 @@ input[type="radio"] {
 
 /* The explanation is placed under the whole label row, so it stays inside the card in either column. */
 .field-label,
-.copy-languages legend {
+.settings-group legend {
   position: relative;
 }
 
@@ -778,6 +899,22 @@ main > section > .loading-general::before {
   margin: 0;
 }
 
+/* An action in a notice, styled like its "Show details" link so the notice stays one or two lines. */
+.message-action {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--darker-purple);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.message-action:disabled {
+  color: var(--color-gray-500);
+  text-decoration: none;
+  cursor: default;
+}
+
 .message-text p + p,
 .message-text p + ul,
 .message-text ul + p {
@@ -1013,7 +1150,7 @@ td .badges {
 
 /* The confirmation before a copy that overwrites, publishes or unpublishes anything. */
 .confirm-dialog {
-  max-width: 520px;
+  max-width: min(520px, calc(100% - 2rem));
   padding: 1.5rem;
   border: none;
   border-radius: 1rem;
@@ -1085,4 +1222,128 @@ td .badges {
 
 .log-error {
   color: var(--darker-red);
+}
+
+/* The preview in a dialog: one row per item, opened for each language's results. */
+.preview-items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--dark-gray);
+  border-radius: 0.75rem;
+  font-size: 13px;
+}
+
+.preview-items > li + li {
+  border-top: 1px solid var(--dark-gray);
+}
+
+.preview-item-header {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px 10px 32px;
+}
+
+.preview-item-header:hover {
+  background-color: var(--light-gray);
+}
+
+/* The same chevron as Copy settings, smaller. */
+.preview-item-header::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: 12px;
+  width: 14px;
+  height: 14px;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke-width='1.5' stroke='%23151515'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='m19.5 8.25-7.5 7.5-7.5-7.5' /%3E%3C/svg%3E")
+    center / contain no-repeat;
+  transform: rotate(-90deg);
+  transition: transform 0.2s ease;
+}
+
+.preview-items li.open > .preview-item-header::before {
+  transform: none;
+}
+
+.preview-items > li:first-child > .preview-item-header {
+  border-radius: 0.75rem 0.75rem 0 0;
+}
+
+.preview-items > li:last-child:not(.open) > .preview-item-header {
+  border-radius: 0 0 0.75rem 0.75rem;
+}
+
+/* The item name opens the row; it's stretched over the whole row so clicking anywhere does. */
+.preview-item-toggle {
+  cursor: pointer;
+}
+
+.preview-item-toggle::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.preview-item-toggle:focus-visible {
+  outline: none;
+}
+
+.preview-item-header:has(.preview-item-toggle:focus-visible) {
+  outline: 2px solid var(--purple);
+  outline-offset: -2px;
+}
+
+/* Above the stretched toggle, so hovering or focusing it shows the codename instead of opening the row. */
+.preview-item-header .codename {
+  position: relative;
+  z-index: 1;
+}
+
+.preview-item-name {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.preview-item-result {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 2px 0;
+}
+
+.preview-item-details {
+  padding: 0 12px 12px 32px;
+}
+
+/* Labeled lines under the name: gray labels, values a shade darker. */
+.preview-item-meta {
+  color: var(--lighter-black);
+}
+
+.preview-item-details ul {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.preview-item-details li {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--dark-gray);
+}
+
+.preview-item-details .badges {
+  margin: 0 0 4px;
 }

@@ -24,7 +24,7 @@ export const LanguagePicker = ({ languages, copyAll, chosen, onChange }: Props) 
     languages.map((l) => l.codename).filter((c) => codenames.includes(c));
 
   return (
-    <fieldset className="copy-languages">
+    <fieldset className="settings-group">
       <legend>
         Languages to copy
         <Tooltip text="Each selected item is copied in every chosen language it has a variant in." />

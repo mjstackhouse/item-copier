@@ -35,7 +35,10 @@ export const ConnectStep = ({ source, target, customApp, onSourceChange, onTarge
           connection={source}
           environmentId={sourceEnvironmentId}
           otherEnvironmentId={targetEnvironmentId}
+          otherSide="target"
           currentEnvironmentId={customApp?.currentEnvironmentId}
+          lockedToCurrent={customApp?.dialog}
+          inDialog={customApp?.dialog}
           onEnvironmentIdChange={setSourceEnvironmentId}
           onChange={onSourceChange}
         />
@@ -45,6 +48,8 @@ export const ConnectStep = ({ source, target, customApp, onSourceChange, onTarge
           connection={target}
           environmentId={targetEnvironmentId}
           otherEnvironmentId={sourceEnvironmentId}
+          inDialog={customApp?.dialog}
+          otherSide="source"
           currentEnvironmentId={customApp?.currentEnvironmentId}
           onEnvironmentIdChange={setTargetEnvironmentId}
           onChange={onTargetChange}
@@ -75,8 +80,13 @@ type FormProps = {
   readonly environmentId: string;
   /** The environment ID entered on the other side. */
   readonly otherEnvironmentId: string;
+  readonly otherSide: "source" | "target";
   /** The environment the custom app is opened in, offered with "Use this environment". */
   readonly currentEnvironmentId?: string;
+  /** In a dialog, the source is always the environment the app is opened in. */
+  readonly lockedToCurrent?: boolean;
+  /** In a Kontent.ai dialog, which keeps the key until it's closed, rather than a browser tab. */
+  readonly inDialog?: boolean;
   readonly onEnvironmentIdChange: (environmentId: string) => void;
   readonly onChange: (connection: Connection | undefined) => void;
 };
@@ -87,7 +97,10 @@ const EnvironmentForm = ({
   connection,
   environmentId,
   otherEnvironmentId,
+  otherSide,
   currentEnvironmentId,
+  lockedToCurrent,
+  inDialog,
   onEnvironmentIdChange,
   onChange,
 }: FormProps) => {
@@ -126,6 +139,7 @@ const EnvironmentForm = ({
           id={`${id}-environment`}
           value={environmentId}
           onChange={edit(onEnvironmentIdChange)}
+          readOnly={lockedToCurrent}
           placeholder="00000000-0000-0000-0000-000000000000"
           autoComplete="off"
           data-1p-ignore
@@ -133,27 +147,28 @@ const EnvironmentForm = ({
           data-bwignore
           data-form-type="other"
         />
-        {/* Always takes up its line inside Kontent.ai, so using the link doesn't move the fields below. */}
+        {/* Always has something to say inside Kontent.ai, so the line never sits empty and using the link
+            doesn't move the fields below. */}
         {currentEnvironmentId && (
           <div className="environment-hint">
             {environmentId.trim() === currentEnvironmentId ? (
               <span className="muted">
                 <span aria-hidden="true">✓ </span>The environment this app is open in
               </span>
+            ) : otherEnvironmentId.trim() === currentEnvironmentId ? (
+              // The link isn't offered then: the copy would be into the same environment.
+              <span className="muted">Different from the {otherSide}</span>
             ) : (
-              // Not offered when the other side already uses it: the copy would be into the same environment.
-              otherEnvironmentId.trim() !== currentEnvironmentId && (
-                <button
-                  type="button"
-                  className="link-btn"
-                  onClick={() => {
-                    onEnvironmentIdChange(currentEnvironmentId);
-                    if (connection) onChange(undefined);
-                  }}
-                >
-                  Use this environment
-                </button>
-              )
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => {
+                  onEnvironmentIdChange(currentEnvironmentId);
+                  if (connection) onChange(undefined);
+                }}
+              >
+                Use this environment
+              </button>
             )}
           </div>
         )}
@@ -162,7 +177,7 @@ const EnvironmentForm = ({
         <div className="field-label">
           <label htmlFor={`${id}-key`}>Management API key</label>
           <Tooltip
-            text={`A Management API key for this environment, from Project settings > API keys, with these permissions: ${permissions}. It is kept in this browser tab only and cleared when you close or reload it.`}
+            text={`A Management API key for this environment, from Project settings > API keys, with these permissions: ${permissions}. ${inDialog ? "It is kept in this dialog only and cleared when you close it." : "It is kept in this browser tab only and cleared when you close or reload it."}`}
           />
         </div>
         {/* Password managers offer to save a password field when the form goes away, which the attributes

@@ -9,6 +9,8 @@ export type Selection = {
   /** The languages picked under "Choose languages", in the source's language order. */
   readonly chosenLanguages: readonly string[];
   readonly pickedItems: readonly Item[];
+  /** In a dialog: the key of the Kontent.ai selection `pickedItems` were loaded from (`selectionKey`). */
+  readonly pickedFromKey?: string;
   readonly linkedItemsDepth: number;
   readonly skipMissingReferences: boolean;
 };

@@ -1,11 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { ConnectStep } from "./components/ConnectStep";
 import { CopyStep } from "./components/CopyStep";
 import { PreviewStep } from "./components/PreviewStep";
 import { Message } from "./components/ui";
 import { emptySearch, type SearchState, SelectStep } from "./components/SelectStep";
-import { type CustomAppSettings, insideKontentAi, loadCustomAppSettings } from "./lib/customApp";
+import {
+  type CustomAppSettings,
+  insideKontentAi,
+  type KontentSelection,
+  loadCustomAppSettings,
+  watchKontentSelection,
+} from "./lib/customApp";
 import { type Connection, loadSourceData, type SourceData } from "./lib/kontent";
 import type { Plan } from "./lib/plan";
 import type { PublishMode } from "./lib/publishing";
@@ -34,6 +40,9 @@ export const App = () => {
   // Inside Kontent.ai, the Connect step waits for the custom app settings so it can fill in environment IDs.
   const [customApp, setCustomApp] = useState<CustomAppSettings>();
   const [customAppLoading, setCustomAppLoading] = useState(insideKontentAi);
+  // In a dialog, what is selected in Kontent.ai takes the place of the search.
+  const [kontentSelection, setKontentSelection] = useState<KontentSelection>();
+  const dialog = customApp?.dialog ?? false;
 
   useEffect(() => {
     if (!insideKontentAi()) return;
@@ -42,6 +51,11 @@ export const App = () => {
       setCustomAppLoading(false);
     });
   }, []);
+
+  useEffect(() => {
+    if (!dialog) return;
+    return watchKontentSelection(setKontentSelection);
+  }, [dialog]);
 
   // Load languages and types whenever the source changes. Items are searched for on demand.
   useEffect(() => {
@@ -68,16 +82,36 @@ export const App = () => {
     };
   }, [source]);
 
+  // On every step change but the first page load: back to the top, and focus on the new step's heading, so keyboard
+  // and screen reader users start there instead of on a button that no longer exists.
+  // Choose items first shows a loading screen, whose heading is replaced once the source data has loaded.
+  const focusKey = step === "select" ? `select-${sourceData ? "ready" : "loading"}` : step;
+  const firstStep = useRef(true);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: focusKey is the trigger, not a value the effect reads
+  useEffect(() => {
+    if (firstStep.current) {
+      firstStep.current = false;
+      return;
+    }
+    window.scrollTo(0, 0);
+    const heading = document.querySelector<HTMLElement>("main > section h2");
+    heading?.setAttribute("tabindex", "-1");
+    heading?.focus({ preventScroll: true });
+  }, [focusKey]);
+
   const currentIndex = steps.findIndex((s) => s.id === step);
 
   return (
-    <main>
+    <main className={dialog ? "dialog-mode" : undefined}>
       <p id="app-title">Item Copier</p>
       <header>
         {step === "connect" && (
           <p className="intro">
             Copy content items, the items they link to and the assets they use from one Kontent.ai environment to
-            another. Your API keys stay in this browser tab and are never stored.
+            another.{" "}
+            {dialog
+              ? "Your API keys stay in this dialog and are cleared when you close it."
+              : "Your API keys stay in this browser tab and are never stored."}
           </p>
         )}
         <ol className="stepper">
@@ -119,6 +153,7 @@ export const App = () => {
             sourceData={sourceData}
             selection={selection}
             search={search}
+            kontentSelection={dialog ? (kontentSelection ?? { page: "other", itemIds: [] }) : undefined}
             onChange={setSelection}
             onSearchChange={setSearch}
             onBack={() => setStep("connect")}
@@ -149,6 +184,11 @@ export const App = () => {
           sourceData={sourceData}
           selection={selection}
           publishMode={publishMode}
+          inDialog={dialog}
+          kontentSelection={dialog ? kontentSelection : undefined}
+          onPickedItemsChange={(items, fromKey) =>
+            setSelection((s) => ({ ...s, pickedItems: [...items], pickedFromKey: fromKey }))
+          }
           onPublishModeChange={setPublishMode}
           onSkipMissingReferencesChange={(skip) => setSelection((s) => ({ ...s, skipMissingReferences: skip }))}
           onBack={() => setStep("select")}
@@ -167,21 +207,27 @@ export const App = () => {
           plan={plan}
           publishMode={publishMode}
           sourceWorkflowSteps={sourceData.workflowSteps}
+          languages={sourceData.languages}
+          inDialog={dialog}
           onStartOver={() => {
             setPlan(undefined);
-            setSelection({ ...selection, pickedItems: [] });
+            setSelection({ ...selection, pickedItems: [], pickedFromKey: undefined });
             setStep("select");
           }}
         />
       )}
 
       {/* Background rather than a warning, so it stays out of the way; the preview's confirmation carries the
-          warning that copies can't be undone. */}
+          warning that copies can't be undone in Item Copier. */}
       <footer className="app-footer">
         {/* One inline run: as separate flex items, the space before the link would be dropped. */}
         <span>
           Not an official Kontent.ai tool ·{" "}
-          <a href="https://github.com/mjstackhouse/item-copier#how-to-use-it" target="_blank" rel="noreferrer">
+          <a
+            href={`https://github.com/mjstackhouse/item-copier#${dialog ? "dialog-mode" : "how-to-use-it"}`}
+            target="_blank"
+            rel="noreferrer"
+          >
             How to use it
           </a>
         </span>

@@ -14,6 +14,7 @@ Requires Node.js 20 or later (CI and Netlify use Node.js 22). The commands are i
 | `src/lib/publishing.ts` | Workflow steps, publishing states, and the preview's prediction of each variant's outcome |
 | `src/lib/copy.ts` | Running the toolkit's export and import, adapting the data in between, and summarizing the result |
 | `src/lib/report.ts` | The downloadable copy report |
+| `src/lib/itemResults.ts` | The preview's per-item results in a dialog, riskiest first |
 | `src/lib/customApp.ts` | Running as a Kontent.ai custom app: the current environment and the optional settings |
 | `src/lib/pacedHttp.ts` | Request pacing (see [Request rate](#request-rate)) |
 | `src/lib/selection.ts`, `src/lib/util.ts` | What the user chose to copy; small shared helpers |
@@ -53,6 +54,15 @@ Search uses the Management API's filter endpoint, 50 items per page, plus one bu
 ### Running as a custom app
 
 When the page is in an iframe, the app asks Kontent.ai for the custom app context with `getCustomAppContext()` from `@kontent-ai/custom-app-sdk`, which is loaded only then. It uses the environment ID for "Use this environment" and reads `thisEnvironment`, `sourceEnvironmentId` and `targetEnvironmentId` from the settings (`parseCustomAppSettings`). API keys in the settings are ignored on purpose. The SDK waits without a time limit, so after 5 seconds the Connect step appears as in a standalone tab.
+
+**Dialog mode.** The context doesn't say which display mode the app runs in, so the app calls `setPopupSize` (450px by 90%), which only succeeds in a dialog. In a dialog:
+
+- The source is fixed to the current environment, and only `targetEnvironmentId` is read from the settings.
+- `watchKontentSelection` replaces the search on the Choose items step: the items checked in the content inventory (`itemListingSelection.selectedItemIds`) or the item open in the editor (`contentItemId`). The checkbox in the inventory's header selects every item matching its filter, including items the listing doesn't show: the context then has `selectAll` with the filter (`itemListingFilter`), and `inventoryFilter` turns that into a filter request (all pages), minus `unselectedItemIds`. Everything maps except the search scope, which the Management API doesn't take, so the step says so when there is a search phrase. The SDK's README is ambiguous about what `selectedItemIds` holds under `selectAll`; it isn't used then. Names and types are loaded with one bulk request, 400 ms after the selection stops changing. `selectionKey` records which selection the items came from (`Selection.pickedFromKey`), so the preview can tell when it changed.
+
+The intro, the API key tooltip and the footer link ("How to use it" goes to the README's Dialog mode section) say "dialog" instead of "tab". On every step change the app scrolls to the top and focuses the step's heading, in all modes.
+- `observeCustomAppContext` only reports changes on the page it subscribed on, so when the pointer enters the dialog or it gets focus, the app reads the context again and subscribes anew if the page changed.
+- The `dialog-mode` styles lay the steps out like a phone app: one column, the buttons sharing one row and a footer that scrolls with the page. The preview lists one row per item instead of the table, with the item's riskiest result (`itemResults.ts`) and its result chip, type and languages on lines under the name, the per-language results in an expandable part (the name acts as a toggle stretched over the row, an inline `role="button"` so a long name wraps like text with the codename icon after it); the summary line counts items whose results differ per language. A selection that changes after the preview is built shows a notice with **Update preview** (`selectionChange`), never applied without asking, since the copy must match what was reviewed; and the copy warns that closing the dialog stops the copy (the dialog keeps no state when closed).
 
 ### Copying
 

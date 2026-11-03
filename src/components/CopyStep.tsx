@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
-import { type CopyResult, copyItems, type LogEntry } from "../lib/copy";
-import { type Connection, editItemUrl } from "../lib/kontent";
+import { type CopiedVariant, type CopyResult, copyItems, type LogEntry } from "../lib/copy";
+import { type Connection, editItemUrl, type Language } from "../lib/kontent";
 import type { Plan } from "../lib/plan";
 import type { PublishMode, WorkflowSteps } from "../lib/publishing";
 import { buildReport } from "../lib/report";
@@ -16,10 +16,24 @@ type Props = {
   readonly plan: Plan;
   readonly publishMode: PublishMode;
   readonly sourceWorkflowSteps: WorkflowSteps;
+  /** The source's languages, to show language names rather than codenames. */
+  readonly languages: readonly Language[];
+  /** In a Kontent.ai dialog, which closing stops the copy, rather than a browser tab. */
+  readonly inDialog: boolean;
   readonly onStartOver: () => void;
 };
 
-export const CopyStep = ({ source, target, selection, plan, publishMode, sourceWorkflowSteps, onStartOver }: Props) => {
+export const CopyStep = ({
+  source,
+  target,
+  selection,
+  plan,
+  publishMode,
+  sourceWorkflowSteps,
+  languages,
+  inDialog,
+  onStartOver,
+}: Props) => {
   const [log, setLog] = useState<LogEntry[]>([]);
   const [result, setResult] = useState<CopyResult>();
   const [error, setError] = useState<string>();
@@ -68,6 +82,8 @@ export const CopyStep = ({ source, target, selection, plan, publishMode, sourceW
     return () => window.removeEventListener("beforeunload", warn);
   }, [running]);
   const summary = result?.summary;
+  const languageNames = new Map(languages.map((l) => [l.codename, l.name]));
+  const languageName = (codename: string) => languageNames.get(codename) ?? codename;
   const cancelled = result?.state === "cancelled";
 
   const cancel = () => {
@@ -109,10 +125,17 @@ export const CopyStep = ({ source, target, selection, plan, publishMode, sourceW
               ? "Copy cancelled"
               : "Copy finished"}
       </h2>
-      {running && !cancelling && <Message kind="warning">Keep this tab open until the copy finishes.</Message>}
+      {running && !cancelling && (
+        <Message kind="warning">
+          {inDialog
+            ? "Keep this dialog open until the copy finishes. Closing it stops the copy, and the items not copied yet stay as they are."
+            : "Keep this tab open until the copy finishes."}
+        </Message>
+      )}
       {running && cancelling && (
         <Message kind="warning">
-          Stopping after the item that is being copied now, so no item is left half-copied. Keep this tab open.
+          Stopping after the item that is being copied now, so no item is left half-copied. Keep this{" "}
+          {inDialog ? "dialog" : "tab"} open.
         </Message>
       )}
 
@@ -181,21 +204,32 @@ export const CopyStep = ({ source, target, selection, plan, publishMode, sourceW
             <span className="section-heading">Copied language variants ({summary.copied.length})</span>
             <span className="muted">Open them in {target.environmentName}</span>
           </summary>
+          {/* One row per item, with a link per language, so long names aren't repeated for every language. */}
           <ul>
-            {summary.copied.map((c) => (
-              <li key={`${c.codename}-${c.languageCodename}`}>
-                {c.targetItemId ? (
-                  <a
-                    href={editItemUrl(target.environmentId, c.languageCodename, c.targetItemId)}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {c.name}
-                  </a>
-                ) : (
-                  c.name
-                )}{" "}
-                <span className="muted">{c.languageCodename}</span>
+            {groupCopied(summary.copied).map(({ codename, name, variants }) => (
+              <li key={codename}>
+                <span className="item-name">{name}</span>
+                <span className="copied-languages">
+                  {variants.map((c) => {
+                    const language = languageName(c.languageCodename);
+                    return (
+                      <span key={c.languageCodename}>
+                        {c.targetItemId ? (
+                          <a
+                            href={editItemUrl(target.environmentId, c.languageCodename, c.targetItemId)}
+                            target="_blank"
+                            rel="noreferrer"
+                            aria-label={`Open ${name} in ${language}`}
+                          >
+                            {language}
+                          </a>
+                        ) : (
+                          language
+                        )}
+                      </span>
+                    );
+                  })}
+                </span>
               </li>
             ))}
           </ul>
@@ -235,4 +269,15 @@ export const CopyStep = ({ source, target, selection, plan, publishMode, sourceW
       </div>
     </section>
   );
+};
+
+/** Copied variants grouped by item, in the order the items were copied. */
+const groupCopied = (copied: readonly CopiedVariant[]) => {
+  const groups = new Map<string, { codename: string; name: string; variants: CopiedVariant[] }>();
+  for (const c of copied) {
+    const group = groups.get(c.codename) ?? { codename: c.codename, name: c.name, variants: [] };
+    group.variants.push(c);
+    groups.set(c.codename, group);
+  }
+  return [...groups.values()];
 };

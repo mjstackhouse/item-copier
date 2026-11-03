@@ -1,5 +1,6 @@
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
+import { type KontentSelection, loadSelectedItems, selectionKey } from "../lib/customApp";
 import {
   activeFilterCount,
   type Connection,
@@ -30,6 +31,8 @@ type Props = {
   readonly sourceData: SourceData;
   readonly selection: Selection;
   readonly search: SearchState;
+  /** In a dialog: what is selected in Kontent.ai, which replaces the search. */
+  readonly kontentSelection?: KontentSelection;
   readonly onChange: (selection: Selection) => void;
   readonly onSearchChange: (search: SearchState) => void;
   readonly onBack: () => void;
@@ -41,6 +44,7 @@ export const SelectStep = ({
   sourceData,
   selection,
   search,
+  kontentSelection,
   onChange,
   onSearchChange,
   onBack,
@@ -111,115 +115,125 @@ export const SelectStep = ({
     <section>
       <h2>Choose items</h2>
 
-      <div className="card step-card">
-        <h3>Find items</h3>
+      {kontentSelection ? (
+        <KontentSelectionCard
+          source={source}
+          sourceData={sourceData}
+          selection={selection}
+          kontentSelection={kontentSelection}
+          onChange={onChange}
+        />
+      ) : (
+        <div className="card step-card">
+          <h3>Find items</h3>
 
-        <div>
-          <form className="search-form" onSubmit={handleSearch}>
-            {/* Only affects searching: each item is copied in the languages chosen in Copy settings. */}
-            {sourceData.languages.length > 1 && (
-              <select
-                className="search-language"
-                aria-label="Search in language"
-                title="Search in language"
-                value={selection.languageCodename}
-                onChange={(e) => changeLanguage(e.target.value)}
-              >
-                {sourceData.languages.map((l) => (
-                  <option key={l.id} value={l.codename}>
-                    {l.name} ({l.codename})
-                  </option>
-                ))}
-              </select>
-            )}
-            <input
-              type="search"
-              aria-label="Search items"
-              placeholder="Search by item name or text content"
-              value={phrase}
-              onChange={(e) => setPhrase(e.target.value)}
-            />
-            <button
-              type="button"
-              className="btn back-btn filters-toggle"
-              aria-expanded={filtersOpen}
-              onClick={() => setFiltersOpen(!filtersOpen)}
-            >
-              {filterCount > 0 ? `Filters (${filterCount})` : "Filters"}
-            </button>
-            <button type="submit" className="btn continue-btn" disabled={!!status.loading}>
-              {status.loading === "search" && <span className="loading-span" aria-hidden="true" />}
-              {status.loading === "search" ? "Searching" : "Search"}
-            </button>
-          </form>
-          {filtersOpen && (
-            <div className="filters-panel">
-              <SearchFilters sourceData={sourceData} filters={filters} onChange={setFilters} />
-              {filterCount > 0 && (
-                <button type="button" className="link-btn" onClick={() => setFilters(noFilters)}>
-                  Clear filters
-                </button>
-              )}
-            </div>
-          )}
-          <p className="hint">
-            Searches in the selected language. Leave the search empty to list all items that match the filters.
-          </p>
-        </div>
-        {status.error && <Message kind="error">{status.error}</Message>}
-
-        {results && (
-          <ul className="item-list" aria-label="Search results">
-            {results.items.map((item) => (
-              <li key={item.id}>
-                <label className="checkbox">
-                  <input type="checkbox" checked={picked.has(item.id)} onChange={() => toggle(item)} />
-                  <span className="item-name">{item.name}</span>
-                  <span className="muted">{typeName(item.typeId)}</span>
-                </label>
-              </li>
-            ))}
-            {results.items.length === 0 && <li className="muted">No items match.</li>}
-            {results.continuationToken && (
-              <li className="load-more">
-                <button
-                  type="button"
-                  className="btn back-btn"
-                  disabled={!!status.loading}
-                  onClick={() => void runSearch(results.continuationToken)}
-                >
-                  {status.loading === "more" ? "Loading…" : "Load more"}
-                </button>
-              </li>
-            )}
-          </ul>
-        )}
-
-        {selection.pickedItems.length > 0 && (
           <div>
-            <h3 className="list-heading">Selected items</h3>
-            <ul className="item-list" aria-label="Selected items">
-              {selection.pickedItems.map((item) => (
-                <li key={item.id} className="selected-item">
-                  <span>
-                    <span className="item-name">{item.name}</span>{" "}
-                    <span className="muted">{typeName(item.typeId)}</span>
-                  </span>
-                  <button
-                    type="button"
-                    className="delete-btn"
-                    onClick={() => toggle(item)}
-                    aria-label={`Remove ${item.name}`}
-                    title="Remove"
-                  >
-                    ×
+            <form className="search-form" onSubmit={handleSearch}>
+              {/* Only affects searching: each item is copied in the languages chosen in Copy settings. */}
+              {sourceData.languages.length > 1 && (
+                <select
+                  className="search-language"
+                  aria-label="Search in language"
+                  title="Search in language"
+                  value={selection.languageCodename}
+                  onChange={(e) => changeLanguage(e.target.value)}
+                >
+                  {sourceData.languages.map((l) => (
+                    <option key={l.id} value={l.codename}>
+                      {l.name} ({l.codename})
+                    </option>
+                  ))}
+                </select>
+              )}
+              <input
+                type="search"
+                aria-label="Search items"
+                placeholder="Search by item name or text content"
+                value={phrase}
+                onChange={(e) => setPhrase(e.target.value)}
+              />
+              <button
+                type="button"
+                className="btn back-btn filters-toggle"
+                aria-expanded={filtersOpen}
+                onClick={() => setFiltersOpen(!filtersOpen)}
+              >
+                {filterCount > 0 ? `Filters (${filterCount})` : "Filters"}
+              </button>
+              <button type="submit" className="btn continue-btn" disabled={!!status.loading}>
+                {status.loading === "search" && <span className="loading-span" aria-hidden="true" />}
+                {status.loading === "search" ? "Searching" : "Search"}
+              </button>
+            </form>
+            {filtersOpen && (
+              <div className="filters-panel">
+                <SearchFilters sourceData={sourceData} filters={filters} onChange={setFilters} />
+                {filterCount > 0 && (
+                  <button type="button" className="link-btn" onClick={() => setFilters(noFilters)}>
+                    Clear filters
                   </button>
+                )}
+              </div>
+            )}
+            <p className="hint">
+              Searches in the selected language. Leave the search empty to list all items that match the filters.
+            </p>
+          </div>
+          {status.error && <Message kind="error">{status.error}</Message>}
+
+          {results && (
+            <ul className="item-list" aria-label="Search results">
+              {results.items.map((item) => (
+                <li key={item.id}>
+                  <label className="checkbox">
+                    <input type="checkbox" checked={picked.has(item.id)} onChange={() => toggle(item)} />
+                    <span className="item-name">{item.name}</span>
+                    <span className="muted">{typeName(item.typeId)}</span>
+                  </label>
                 </li>
               ))}
+              {results.items.length === 0 && <li className="muted">No items match.</li>}
+              {results.continuationToken && (
+                <li className="load-more">
+                  <button
+                    type="button"
+                    className="btn back-btn"
+                    disabled={!!status.loading}
+                    onClick={() => void runSearch(results.continuationToken)}
+                  >
+                    {status.loading === "more" ? "Loading…" : "Load more"}
+                  </button>
+                </li>
+              )}
             </ul>
-          </div>
-        )}
-      </div>
+          )}
+
+          {selection.pickedItems.length > 0 && (
+            <div>
+              <h3 className="list-heading">Selected items</h3>
+              <ul className="item-list" aria-label="Selected items">
+                {selection.pickedItems.map((item) => (
+                  <li key={item.id} className="selected-item">
+                    <span>
+                      <span className="item-name">{item.name}</span>{" "}
+                      <span className="muted">{typeName(item.typeId)}</span>
+                    </span>
+                    <button
+                      type="button"
+                      className="delete-btn"
+                      onClick={() => toggle(item)}
+                      aria-label={`Remove ${item.name}`}
+                      title="Remove"
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
 
       <details
         className="card settings-card"
@@ -261,19 +275,21 @@ export const SelectStep = ({
             </select>
           </div>
 
-          <div className="field">
-            <div className="field-label">
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  checked={selection.skipMissingReferences}
-                  onChange={(e) => onChange({ ...selection, skipMissingReferences: e.target.checked })}
-                />
-                Skip missing references
-              </label>
+          {/* Its own setting, not part of linked items: it covers deleted items and assets anywhere in the content. */}
+          <fieldset className="settings-group">
+            <legend>
+              Missing references
               <Tooltip text="References to items or assets that were deleted in the source are left out of the copied content. Without this, the copy stops at the first one. The preview tells you if there are any." />
-            </div>
-          </div>
+            </legend>
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={selection.skipMissingReferences}
+                onChange={(e) => onChange({ ...selection, skipMissingReferences: e.target.checked })}
+              />
+              Skip references to deleted items and assets
+            </label>
+          </fieldset>
         </div>
       </details>
       {noLanguages && <Message kind="warning">Choose at least one language to copy.</Message>}
@@ -324,4 +340,101 @@ const describeSettings = (selection: Selection, sourceData: SourceData): string 
   );
   if (selection.skipMissingReferences) parts.push("Skip missing references");
   return parts.join(" · ");
+};
+
+/** Debounced, so ticking several checkboxes in a row loads the items once. */
+const selectionDelayMs = 400;
+
+type KontentSelectionCardProps = {
+  readonly source: Connection;
+  readonly sourceData: SourceData;
+  readonly selection: Selection;
+  readonly kontentSelection: KontentSelection;
+  readonly onChange: (selection: Selection) => void;
+};
+
+/** In a dialog: the items selected in Kontent.ai, kept up to date as the selection changes. */
+const KontentSelectionCard = ({
+  source,
+  sourceData,
+  selection,
+  kontentSelection,
+  onChange,
+}: KontentSelectionCardProps) => {
+  const [status, setStatus] = useState<{ readonly loading?: boolean; readonly error?: string }>({});
+  // The latest selection, so loading the items doesn't depend on (and re-run for) every settings change.
+  const latest = useRef({ selection, onChange });
+  latest.current = { selection, onChange };
+
+  const key = selectionKey(kontentSelection);
+  // The latest Kontent.ai selection, read when its key changes.
+  const latestSelection = useRef(kontentSelection);
+  latestSelection.current = kontentSelection;
+  useEffect(() => {
+    const current = latest.current.selection;
+    if (key === current.pickedFromKey) return;
+    const selected = latestSelection.current;
+    if (!selected.selectAll && selected.itemIds.length === 0) {
+      latest.current.onChange({ ...current, pickedItems: [], pickedFromKey: key });
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      setStatus({ loading: true });
+      loadSelectedItems(source.client, selected, current.languageCodename)
+        .then((pickedItems) => {
+          if (cancelled) return;
+          const { selection: now, onChange: change } = latest.current;
+          change({ ...now, pickedItems, pickedFromKey: key });
+          setStatus({});
+        })
+        .catch((error: unknown) => {
+          console.error(error);
+          if (!cancelled) setStatus({ error: `Could not load the selected items: ${errorMessage(error)}` });
+        });
+    }, selectionDelayMs);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [key, source.client]);
+
+  const typeName = (typeId: string) => sourceData.typesById.get(typeId)?.name ?? "";
+  const items = selection.pickedItems;
+
+  return (
+    <div className="card step-card">
+      <h3>Selected in Kontent.ai{kontentSelection.selectAll && !status.loading ? ` (${items.length})` : ""}</h3>
+      <p className="hint">
+        {kontentSelection.page === "itemEditor"
+          ? "The item open in the editor. To copy several items, select them in the content inventory."
+          : kontentSelection.selectAll
+            ? kontentSelection.selectAll.filter.searchPhrase.trim()
+              ? "All items matching the content inventory's filters and search, including any not shown in the listing. Check the list: the search here covers names and content, even if the content inventory's search is limited to names."
+              : "All items matching the content inventory's filters, including any not shown in the listing."
+            : kontentSelection.page === "contentInventory"
+              ? "Select items with the checkboxes in the content inventory. The list updates as you select them."
+              : "Open the content inventory and select the items to copy, or open an item to copy it."}
+      </p>
+      {status.error && <Message kind="error">{status.error}</Message>}
+      {status.loading && items.length === 0 ? (
+        <p className="loading-general" role="status">
+          Loading the selected items
+        </p>
+      ) : (
+        items.length > 0 && (
+          <ul className="item-list" aria-label="Selected items" aria-busy={status.loading}>
+            {items.map((item) => (
+              <li key={item.id} className="selected-item">
+                <span>
+                  <span className="item-name">{item.name}</span> <span className="muted">{typeName(item.typeId)}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )
+      )}
+    </div>
+  );
 };
