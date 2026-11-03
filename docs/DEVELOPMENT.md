@@ -37,7 +37,7 @@ Search uses the Management API's filter endpoint, 50 items per page, plus one bu
 - **Missing references**: the toolkit fails the copy on a reference to an item or asset that no longer exists, unless `skipMissingReferences` is set. The preview checks the items it follows, the items linked from the last level, every asset the copied variants use (one request per asset; there is no bulk get), and the older published version of a variant whose latest version is a newer draft, because the toolkit copies both versions.
 - **Blockers** stop the copy when:
   - a selected item no longer exists, or has a variant in none of the chosen languages
-  - the target lacks a chosen language, or a content type, collection or workflow the items use (matched by codename, as the toolkit does). Moving content into another workflow could change who may edit and publish it, so a missing workflow is never worked around.
+  - the target lacks (or has inactive) a language the copy writes variants in, or a content type, collection or workflow the items use (matched by codename, as the toolkit does). Moving content into another workflow could change who may edit and publish it, so a missing workflow is never worked around.
   - an item exists in the target with a different content type
   - an element (including one from a snippet) is missing in the target's type or is a different kind of element. Extra elements in the target are fine; element settings such as limits aren't compared.
   - a taxonomy term the items use is missing in the target, or its whole group is

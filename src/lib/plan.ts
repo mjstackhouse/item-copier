@@ -146,16 +146,9 @@ export const buildPlan = async (params: {
     targetTypes.data.items.map((t) => [t.codename, flattenTypeElements(t.elements, targetSnippetsById)]),
   );
 
-  for (const languageCodename of languageCodenames) {
-    const targetLanguage = targetLanguages.data.items.find((l) => l.codename === languageCodename);
-    if (!targetLanguage) {
-      blockers.push(`The target has no language with the codename "${languageCodename}".`);
-    } else if (!targetLanguage.isActive) {
-      blockers.push(`The language "${languageCodename}" is not active in the target.`);
-    }
-  }
-
   const known = linked.items;
+
+  blockers.push(...checkLanguages(languageCodenames, known, targetLanguages.data.items));
 
   const targetTypeCodenames = new Map(targetTypes.data.items.map((t) => [t.id, t.codename]));
   const targetTypeCodenameSet = new Set(targetTypeCodenames.values());
@@ -398,6 +391,26 @@ const namesOf = (items: readonly PlannedItem[]) => unique(items.map((p) => p.ite
  * The toolkit looks up the taxonomy group of every taxonomy element while reading items, even when
  * no terms are selected, and fails the whole copy if the group no longer exists.
  */
+/**
+ * The target needs the languages the copy writes variants in, and only those: a chosen language that none of the
+ * copied items has a variant in (with "All languages", any of the source's) copies nothing, so it isn't required.
+ */
+export const checkLanguages = (
+  chosenCodenames: readonly string[],
+  items: readonly Pick<PlannedItem, "languageCodename">[],
+  targetLanguages: readonly { readonly codename: string; readonly isActive: boolean }[],
+): string[] => {
+  const copied = new Set(items.map((p) => p.languageCodename));
+  return chosenCodenames
+    .filter((codename) => copied.has(codename))
+    .flatMap((codename) => {
+      const targetLanguage = targetLanguages.find((l) => l.codename === codename);
+      if (!targetLanguage) return [`The target has no language with the codename "${codename}".`];
+      if (!targetLanguage.isActive) return [`The language "${codename}" is not active in the target.`];
+      return [];
+    });
+};
+
 const checkTaxonomyGroups = (sourceData: SourceData, items: readonly PlannedItem[]): string[] =>
   unique(items.map((p) => p.item.typeId)).flatMap((typeId) =>
     (sourceData.taxonomyElementsByType.get(typeId) ?? [])

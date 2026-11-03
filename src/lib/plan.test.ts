@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { planRow, publishingState } from "../test/fixtures";
-import { type Plan, type PlanRow, publishModeBlockers, type Unarchivable } from "./plan";
+import { checkLanguages, type Plan, type PlanRow, publishModeBlockers, type Unarchivable } from "./plan";
 
 const planOf = (unarchivable: readonly Unarchivable[]): Plan => ({
   rows: unarchivable.map((u) => u.row),
@@ -42,5 +42,24 @@ describe("publishModeBlockers", () => {
 
   test("blocks nothing when every archived item can be archived", () => {
     expect(publishModeBlockers(planOf([]), "match")).toEqual([]);
+  });
+});
+
+describe("checkLanguages", () => {
+  const target = [
+    { codename: "en", isActive: true },
+    { codename: "cs", isActive: false },
+  ];
+  const copiedIn = (...languages: string[]) => languages.map((languageCodename) => ({ languageCodename }));
+
+  test("doesn't require a chosen language that none of the copied items has a variant in", () => {
+    expect(checkLanguages(["en", "de", "fr"], copiedIn("en", "en"), target)).toEqual([]);
+  });
+
+  test("requires the languages the copy writes variants in, active", () => {
+    expect(checkLanguages(["en", "de", "cs"], copiedIn("en", "de", "cs"), target)).toEqual([
+      'The target has no language with the codename "de".',
+      'The language "cs" is not active in the target.',
+    ]);
   });
 });
