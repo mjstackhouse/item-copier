@@ -17,6 +17,13 @@ type Props = {
 
 export const ConnectStep = ({ source, target, customApp, onSourceChange, onTargetChange, onNext }: Props) => {
   const sameEnvironment = source && target && source.environmentId === target.environmentId;
+  // Held here so each side can tell whether the other already uses the environment the app is opened in.
+  const [sourceEnvironmentId, setSourceEnvironmentId] = useState(
+    source?.environmentId ?? customApp?.sourceEnvironmentId ?? "",
+  );
+  const [targetEnvironmentId, setTargetEnvironmentId] = useState(
+    target?.environmentId ?? customApp?.targetEnvironmentId ?? "",
+  );
 
   return (
     <section>
@@ -26,16 +33,20 @@ export const ConnectStep = ({ source, target, customApp, onSourceChange, onTarge
           label="Copy from (source)"
           permissions="Read content, Read assets, Manage content model and Manage environment settings"
           connection={source}
-          initialEnvironmentId={customApp?.sourceEnvironmentId}
+          environmentId={sourceEnvironmentId}
+          otherEnvironmentId={targetEnvironmentId}
           currentEnvironmentId={customApp?.currentEnvironmentId}
+          onEnvironmentIdChange={setSourceEnvironmentId}
           onChange={onSourceChange}
         />
         <EnvironmentForm
           label="Copy to (target)"
           permissions="Create, edit, and delete content; Create, edit, and delete assets; Manage content model; and Manage environment settings"
           connection={target}
-          initialEnvironmentId={customApp?.targetEnvironmentId}
+          environmentId={targetEnvironmentId}
+          otherEnvironmentId={sourceEnvironmentId}
           currentEnvironmentId={customApp?.currentEnvironmentId}
+          onEnvironmentIdChange={setTargetEnvironmentId}
           onChange={onTargetChange}
         />
       </div>
@@ -61,10 +72,12 @@ type FormProps = {
   /** The Management API key permissions this side needs; the app also reads the content model and settings. */
   readonly permissions: string;
   readonly connection?: Connection;
-  /** From the custom app settings; a connection made earlier takes precedence. */
-  readonly initialEnvironmentId?: string;
+  readonly environmentId: string;
+  /** The environment ID entered on the other side. */
+  readonly otherEnvironmentId: string;
   /** The environment the custom app is opened in, offered with "Use this environment". */
   readonly currentEnvironmentId?: string;
+  readonly onEnvironmentIdChange: (environmentId: string) => void;
   readonly onChange: (connection: Connection | undefined) => void;
 };
 
@@ -72,11 +85,12 @@ const EnvironmentForm = ({
   label,
   permissions,
   connection,
-  initialEnvironmentId,
+  environmentId,
+  otherEnvironmentId,
   currentEnvironmentId,
+  onEnvironmentIdChange,
   onChange,
 }: FormProps) => {
-  const [environmentId, setEnvironmentId] = useState(connection?.environmentId ?? initialEnvironmentId ?? "");
   const [apiKey, setApiKey] = useState(connection?.apiKey ?? "");
   const [status, setStatus] = useState<{ readonly loading: boolean; readonly error?: string }>({ loading: false });
   const id = useId();
@@ -111,7 +125,7 @@ const EnvironmentForm = ({
         <input
           id={`${id}-environment`}
           value={environmentId}
-          onChange={edit(setEnvironmentId)}
+          onChange={edit(onEnvironmentIdChange)}
           placeholder="00000000-0000-0000-0000-000000000000"
           autoComplete="off"
           data-1p-ignore
@@ -119,17 +133,29 @@ const EnvironmentForm = ({
           data-bwignore
           data-form-type="other"
         />
-        {currentEnvironmentId && environmentId.trim() !== currentEnvironmentId && (
-          <button
-            type="button"
-            className="link-btn"
-            onClick={() => {
-              setEnvironmentId(currentEnvironmentId);
-              if (connection) onChange(undefined);
-            }}
-          >
-            Use this environment
-          </button>
+        {/* Always takes up its line inside Kontent.ai, so using the link doesn't move the fields below. */}
+        {currentEnvironmentId && (
+          <div className="environment-hint">
+            {environmentId.trim() === currentEnvironmentId ? (
+              <span className="muted">
+                <span aria-hidden="true">✓ </span>The environment this app is open in
+              </span>
+            ) : (
+              // Not offered when the other side already uses it: the copy would be into the same environment.
+              otherEnvironmentId.trim() !== currentEnvironmentId && (
+                <button
+                  type="button"
+                  className="link-btn"
+                  onClick={() => {
+                    onEnvironmentIdChange(currentEnvironmentId);
+                    if (connection) onChange(undefined);
+                  }}
+                >
+                  Use this environment
+                </button>
+              )
+            )}
+          </div>
         )}
       </div>
       <div className="field">

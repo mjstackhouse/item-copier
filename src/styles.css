@@ -696,9 +696,12 @@ main > section > .loading-general::before {
   -webkit-text-security: disc;
 }
 
-/* "Use this environment" under the environment ID field. */
-.field .link-btn {
-  align-self: flex-start;
+/* "Use this environment", or a note that the field already holds it, under the environment ID field. */
+.environment-hint {
+  display: flex;
+  align-items: center;
+  min-height: 20px;
+  font-size: 13px;
 }
 
 .item-list {
