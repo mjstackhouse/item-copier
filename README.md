@@ -35,7 +35,15 @@ It runs entirely in your browser. There is no server, and your API keys are neve
   - Source: _Read content_, _Read assets_, _Manage content model_ and _Manage environment settings_.
   - Target: _Create, edit, and delete content_; _Create, edit, and delete assets_; _Manage content model_; and _Manage environment settings_.
 
-  The tool doesn't change the content model or settings. It needs those two permissions to read content types, taxonomies, languages, collections and workflows. A personal API key works too, if its owner has those rights.
+  The tool doesn't change the content model or settings. It needs those two permissions to read content types, taxonomies, languages, collections and workflows. You can also [use a personal API key](#using-a-personal-api-key).
+
+### Using a personal API key
+
+Instead of a Management API key, you can use your own personal API key in each environment. A personal API key has the same permissions as your role, so it works if your role can:
+
+- **In the source**: view content items and assets in the collections and languages you copy.
+- **In the target**: view, create and edit content items, and create and edit assets, in those collections and languages.
+- **In the target's workflows**: work in the steps the copied items are moved through. If the copy publishes, unpublishes or archives items, your role needs to be allowed to do that in those workflows too.
 
 ## How to use it
 
