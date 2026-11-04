@@ -4,7 +4,11 @@ A tool for [Kontent.ai](https://kontent.ai/) users who need to copy content item
 
 It runs entirely in your browser. There is no server, and your API keys are never stored: they're gone when you close or reload the tab. The copying itself is done by Kontent.ai's [migration toolkit](https://github.com/kontent-ai/migration-toolkit).
 
+**Full-screen mode**
+
 ![Item Copier as a full-screen custom app: connecting two environments, searching for items, previewing the copy and copying them](item-copier-full-screen-demo.gif)
+
+**Dialog mode**
 
 ![Item Copier in dialog mode, next to the content inventory: connecting two environments, selecting items in the inventory, previewing the copy and copying them](item-copier-dialog-demo.gif)
 
