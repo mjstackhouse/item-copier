@@ -105,7 +105,9 @@ export const App = () => {
     <main className={dialog ? "dialog-mode" : undefined}>
       <p id="app-title">Item Copier</p>
       <header>
-        {step === "connect" && (
+        {/* Not until the custom app settings have loaded: until then, it isn't known whether this is a dialog,
+            and the wording about where the keys are kept depends on it. */}
+        {step === "connect" && !customAppLoading && (
           <p className="intro">
             Copy content items, the items they link to and the assets they use from one Kontent.ai environment to
             another.{" "}
