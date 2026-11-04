@@ -67,7 +67,7 @@ Instead of a Management API key, you can use your own personal API key in each e
 - **Keep the tab open** while the copy runs; closing it stops the copy. To stop, use **Cancel copy**, which finishes the current item first.
 - **Copying again is safe**: existing items and assets are updated, not duplicated.
 - **It takes a while for large copies**: requests are paced to half of the Management API's rate limits, so the tool doesn't slow down other work in your environments. About 65 language variants take 3 minutes.
-- **Not copied**: the source items' version history, comments, tasks and assignees.
+- **Not copied**: the source items' version history, comments, tasks and contributors.
 - **Deleted references**: the copy stops on a reference to an item or asset that no longer exists, unless you skip such references. The preview tells you when there are any.
 
 ## Running as a Kontent.ai custom app
